@@ -20,6 +20,8 @@
 
 #include "common.h"
 #include "control_msg.h"
+#include "packet.h"
+#include "datalink.h"
 
 /* global variables for the client */
 client_state_t g_state = INIT;
@@ -46,11 +48,16 @@ void* receiver_thread(void* args) {
 
 	while(1) {
 		char * buf = malloc(BUF_MAX + 1);
-    	if ((numbytes = recv(sockfd, buf, BUF_MAX, 0)) == -1) {
+//    	if ((numbytes = recv(sockfd, buf, BUF_MAX, 0)) == -1) {
+//			perror("recv IN_SESSION fails");
+//			exit(1);
+//		}
+		if ((numbytes = datalink_recv(sockfd, buf, BUF_MAX)) == -1) {
 			perror("recv IN_SESSION fails");
 			exit(1);
 		}
     	buf[numbytes + 1] = '\0';
+    	printf("receive '%s' from server\n", buf);
 
 		int count = 0;
 		while ((str = strsep(&buf, ":")) != NULL) {
@@ -197,12 +204,13 @@ int handle_connect(char *hostname, char *port) {
     freeaddrinfo(servinfo); // all done with this structure
 
     char * buf = malloc(BUF_MAX);
-    if ((numbytes = recv(sockfd, buf, BUF_MAX-1, 0)) == -1) {
-        perror("recv");
+    if ((numbytes = datalink_recv(sockfd, buf, BUF_MAX)) == -1) {
+        perror("datalink_recv");
         exit(1);
     }
 
     buf[numbytes] = '\0';
+    printf("receive '%s' from server\n", buf);
 
     /* server returns [ACK:user_name] */
     char *token[PARAMS_MAX];
@@ -258,7 +266,10 @@ int send_text(int sockfd, char * text) {
 
 /* request help messages from server */
 void request_help() {
-	if (send(g_sockfd, MSG_HELP, sizeof(MSG_HELP), 0) == 0) {
+//	if (send(g_sockfd, MSG_HELP, sizeof(MSG_HELP), 0) == 0) {
+//		perror("send help request fails");
+//	}
+	if (datalink_send(g_sockfd, MSG_HELP, sizeof(MSG_HELP)) < 0) {
 		perror("send help request fails");
 	}
 }
@@ -512,6 +523,21 @@ int main(int argc, char *argv[])
 	int i;
 	int connected = 0; /* 0 means unconnected, 1 means connected*/
     struct thread_info *tinfo;
+
+//    if (argc != 4) {
+//    	printf("Usage: ./client [gbn|sr] [window_size] [loss_rate]\n");
+//    	exit(1);
+//    }
+//
+//    char * protocol = argv[1];
+//    int window_size = atoi(argv[2]);
+//    double loss_rate;
+//    sscanf(argv[3], "%lf", &loss_rate);
+    char * protocol = "gbn";
+    int window_size = 3;
+    double loss_rate = 0.5f;
+    datalink(protocol, window_size, loss_rate);
+    printf("protocol = %s, window_size = %d, loss_rate = %lf\n", protocol, window_size, loss_rate);
 
     print_ascii_art();
 

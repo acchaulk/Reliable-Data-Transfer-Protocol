@@ -17,6 +17,9 @@ typedef enum { SERVER_INIT, SERVER_RUNNING,  GRACE_PERIOD } server_state_t;
 
 #define STAT_FILEPATH       "log/stat.txt"
 
+#define CHUNKSIZE              100
+#define HEADER_SIZE			   sizeof(int) * 3
+#define TIMEOUT                100       // default timeout value for gbn timer, second
 /* represent client status on server side */
 struct client_info {
    char *name;

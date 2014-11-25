@@ -20,6 +20,8 @@
 
 #include "common.h"
 #include "control_msg.h"
+#include "datalink.h"
+#include "packet.h"
 
 /* global variables for the server */
 server_state_t g_state =  SERVER_INIT;
@@ -171,7 +173,7 @@ int send_ack(int sockfd, struct client_info * clients[], fd_set *bitmap) {
 	clients[index] = client;
 
 	sprintf(ack, "%s:%s", MSG_ACK, client->name);
-	if (send(sockfd, ack, strlen(ack), 0) == -1) {
+	if (datalink_send(sockfd, ack, strlen(ack)) == -1) {
 		perror("ack fails");
 		return -1;
 	}
@@ -741,9 +743,11 @@ void * main_loop(void * arg) {
 						}
 					}
 
+
+
 					int nbytes;
 				    char *buf = malloc(BUF_MAX + 1); // buffer for client data
-					if ((nbytes = recv(i, buf, BUF_MAX, 0)) <= 0) {
+					if ((nbytes = datalink_recv(i, buf, BUF_MAX)) <= 0) {
 						// got error or connection closed by client
 						if (nbytes == 0) {
 							// connection closed
@@ -917,8 +921,20 @@ int main(void) {
 	pthread_t connector, receiver;
 	char user_input[BUF_MAX];
 
-	// reap all dead processes
-//	cleanup();
+//	if (argc != 4) {
+//		printf("Usage: ./client [gbn|sr] [window_size] [loss_rate]\n");
+//		exit(1);
+//	}
+//
+//	char * protocol = argv[1];
+//	int window_size = atoi(argv[2]);
+//	double loss_rate;
+//	sscanf(argv[3], "%lf", &loss_rate);
+    char * protocol = "gbn";
+    int window_size = 3;
+    double loss_rate = 0.5f;
+    datalink(protocol, window_size, loss_rate);
+    printf("protocol = %s, window_size = %d, loss_rate = %lf\n", protocol, window_size, loss_rate);
 
 	print_ascii_art();
 

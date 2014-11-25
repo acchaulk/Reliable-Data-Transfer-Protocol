@@ -3,10 +3,18 @@
 #
 
 SERVER_SRC := server.c \
-                                  common.c
+                                  common.c \
+                                  datalink.c \
+                                  physical.c \
+                                  gbn.c \
+                                  sr.c
 
 CLIENT_SRC := client.c  \
-                                  common.c
+                                  common.c \
+                                  datalink.c \
+                                  physical.c \
+                                  gbn.c \
+                                  sr.c
 
 # Predefine directories
 PWD := $(shell pwd;cd)
