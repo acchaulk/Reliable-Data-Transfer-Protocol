@@ -30,77 +30,13 @@ fd_set g_bitmap;  // bitmap for chat channel
 fd_set g_master;  // global socket map
 long g_useid = 0;  // global user id
 pthread_t g_connector;
+int g_sockfd;   // connect to client
 
 /* used by cleanup() to handle children */
 void sigchld_handler(int s) {
 	while(waitpid(-1, NULL, WNOHANG) > 0);
 }
 
-/* get sockaddr, IPv4 or IPv6 */
-void *get_in_addr(struct sockaddr *sa) {
-	if (sa->sa_family == AF_INET) {
-		return &(((struct sockaddr_in*)sa)->sin_addr);
-	}
-
-	return &(((struct sockaddr_in6*)sa)->sin6_addr);
-}
-
-/* Create a socket and listen on it
- * return sockfd if success, otherwise client will exit. */
-int setup() {
-	struct addrinfo hints, *servinfo, *p;
-	int sockfd, new_fd;  // listen on sock_fd, new connection on new_fd
-	int rv;
-	int yes=1;
-
-	memset(&hints, 0, sizeof hints);
-	hints.ai_family = AF_UNSPEC;
-	hints.ai_socktype = SOCK_STREAM;
-	hints.ai_flags = AI_PASSIVE; // use my IP
-
-	if ((rv = getaddrinfo(NULL, PORT, &hints, &servinfo)) != 0) {
-		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
-		exit(1);
-	}
-
-	// loop through all the results and bind to the first we can
-	for (p = servinfo; p != NULL; p = p->ai_next) {
-		if ((sockfd = socket(p->ai_family, p->ai_socktype,
-						p->ai_protocol)) == -1) {
-			perror("server: socket");
-			continue;
-		}
-
-		if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes,
-					sizeof(int)) == -1) {
-			perror("setsockopt");
-			exit(1);
-		}
-
-		if (bind(sockfd, p->ai_addr, p->ai_addrlen) == -1) {
-			close(sockfd);
-			perror("server: bind");
-			continue;
-		}
-		break;
-	}
-
-	if (p == NULL)  {
-		fprintf(stderr, "server: failed to bind\n");
-		exit(1);
-	}
-
-	freeaddrinfo(servinfo); // all done with this structure
-
-	if (listen(sockfd, CLIENT_MAX) == -1) {
-		perror("listen");
-		exit(1);
-	}
-
-	printf("start TRS server successfully\n");
-
-	return sockfd;
-}
 
 /* cleans up current processes */
 void cleanup() {
@@ -173,7 +109,7 @@ int send_ack(int sockfd, struct client_info * clients[], fd_set *bitmap) {
 	clients[index] = client;
 
 	sprintf(ack, "%s:%s", MSG_ACK, client->name);
-	if (datalink_send(sockfd, ack, strlen(ack)) == -1) {
+	if (send(sockfd, ack, strlen(ack), 0) == -1) {
 		perror("ack fails");
 		return -1;
 	}
@@ -247,36 +183,6 @@ struct client_info* find_partner(int sockfd,
     return self;
 }
 
-/* return 0 if connection sets up, otherwise return -1 */
-int handle_new_connection(int sockfd, int *fdmax, fd_set *master,
-		struct client_info *clients [], fd_set *bitmap) {
-    int new_fd;
-	socklen_t addrlen;
-	struct sockaddr_storage their_addr; // connector's address information
-	char remoteIP[INET6_ADDRSTRLEN];
-
-	addrlen = sizeof their_addr;
-	new_fd = accept(sockfd, (struct sockaddr *)&their_addr,
-					&addrlen);
-	if (new_fd == -1) {
-		perror("accept() fails");
-		return -1;
-	} else {
-		FD_SET(new_fd, master); // add to g_master set
-		if (new_fd > *fdmax) {
-			*fdmax = new_fd; // keep track of the max
-		}
-		inet_ntop(their_addr.ss_family,
-				get_in_addr((struct sockaddr *)&their_addr),
-				remoteIP, sizeof remoteIP);
-		printf("selectserver: new connection from %s on "
-			   "socket %d\n", remoteIP, new_fd);
-
-		// Acks client and increment current index
-		return send_ack(new_fd, clients, bitmap);
-	}
-}
-
 /* handler for chat requests */
 struct client_info * handle_chat_request(int sockfd, fd_set *master,
 		struct client_info *clients [], fd_set *bitmap)
@@ -332,7 +238,7 @@ void handle_transfer(const char * file_name, struct client_info *client, struct 
 }
 
 /* handler for the help command */
-void handle_help(struct client_info *client) {
+void handle_help(int sockfd) {
 	char buf[512];
 	sprintf(buf, "%-10s - connect to TRS server.\n"
 			"%-10s - chat with a random client in the common chat channel.\n"
@@ -342,7 +248,11 @@ void handle_help(struct client_info *client) {
 			"%-10s - quit current channel.\n"
 			"%-10s - quit client.\n",
 			CONNECT, CHAT, TRANSFER, FLAG, HELP, QUIT, EXIT);
-	if (send(client->sockfd, buf, strlen(buf), 0) == -1) {
+
+//	if (send(client->sockfd, buf, strlen(buf), 0) == -1) {
+//		perror("send help message fails");
+//	}
+	if (datalink_send(sockfd, buf, strlen(buf)) == -1) {
 		perror("send help message fails");
 	}
 }
@@ -689,7 +599,7 @@ void exit_server(int signum) {
 }
 
 /* main loop to be executed, handles the state transition */
-void * main_loop(void * arg) {
+void * server_loop(void * arg) {
     int listener_fd;
 	int fdmax;
 	fd_set master;   // master file descriptor list
@@ -702,7 +612,7 @@ void * main_loop(void * arg) {
 	FD_ZERO(&g_bitmap);
 
     // create socket and listen on it
-	listener_fd = setup();
+	listener_fd = listen_connection(RECV_PORT);
 
 	g_state = SERVER_RUNNING;
 
@@ -730,7 +640,7 @@ void * main_loop(void * arg) {
             if (FD_ISSET(i, &read_fds)) {
                 if (i == listener_fd) {
                 	// getting new incoming connection
-                	handle_new_connection(listener_fd, &fdmax, &master, g_clients, &g_bitmap);
+                	accept_connection(listener_fd, &fdmax, &master);
 				} else {
 					// handling data from client
 					struct client_info * client;
@@ -760,7 +670,7 @@ void * main_loop(void * arg) {
 						continue;
 					} else {
 						buf[nbytes + 1] = '\0';
-						printf("receive '%s' from %s[socket %d]\n", buf, client->name, client->sockfd);
+						printf("receive '%s'\n", buf);
 
 						char *token;
 						char *params[PARAMS_MAX];
@@ -777,53 +687,15 @@ void * main_loop(void * arg) {
 							continue;
 						}
 
-						switch (client->state) {
-						case INIT:
-							break;
-						case CONNECTING:
-							if (strcmp(params[0], EXIT) == 0) {
-								handle_exit(client, NULL, &g_bitmap);
-							} else if (strcmp(params[0], MSG_HELP) == 0) {
-								handle_help(client);
-							} else if (strcmp(params[0], MSG_CHAT_REQUEST) == 0) {
-								// if client request to chat, server will allocate a partner first
-								handle_chat_request(i, &master, g_clients, &g_bitmap);
-								break;
-							}
-							break;
-						case CHATTING:
-						{
-                            struct client_info *partner = g_clients[client->partner_index];
-                            if (strcmp(params[0], EXIT) == 0) {
-                            	handle_exit(client, partner, &g_bitmap);
-                            } else if (strcmp(params[0], QUIT) == 0) {
-								handle_quit(client, partner);
-                            } else if (strcmp(params[0], MSG_HELP) == 0) {
-								handle_help(client);
-							} else if (strcmp(params[0], MSG_FLAG) == 0){
-                            	handle_flag(partner);
-                            } else if (strcmp(params[0], MSG_SENDING_FILE) == 0) {
-                            	handle_transfer(params[1], client, partner);
-                            } else {
-                            	forward_message(partner, params[0]);
-                            }
-							break;
+						if (strcmp(params[0], EXIT) == 0) {
+							handle_exit(client, NULL, &g_bitmap);
+						} else if (strcmp(params[0], MSG_CHAT_REQUEST) == 0) {
+							// if client request to chat, server will allocate a partner first
+							handle_chat_request(i, &master, g_clients, &g_bitmap);
+						} else if (strcmp(params[0], MSG_HELP) == 0) {
+							handle_help(i);
 						}
-						case TRANSFERING:
-						{
-							struct client_info *partner = g_clients[client->partner_index];
-							if (strcmp(params[0], MSG_RECEIVE_SUCCESS) == 0) {
-								handle_transfer_complete(client, partner);
-							} else if (strcmp(params[0], MSG_HELP) == 0) {
-								handle_help(client);
-							} else {
-								forward_message(partner, params[0]);
-							}
-							break;
-						}
-						default:
-							break;
-						}
+
 						int k;
 						for(k = 0; k < count; k++) {
 							free(params[k]);
@@ -857,7 +729,12 @@ void parse_control_command(char * cmd) {
 			strcmp(params[0], UNBLOCK) == 0) {
 			printf("You need start server first\n");
 		} else if (strcmp(params[0], START) == 0) {
-			pthread_create(&g_connector, NULL, &main_loop, NULL);
+			// create socket and listen on it
+			g_sockfd = create_connection("localhost", SEND_PORT);
+			if (g_sockfd == -1) {
+				return;
+			}
+			pthread_create(&g_connector, NULL, &server_loop, NULL);
 		} else if (strcmp(params[0], END) == 0) {
 			/* server has not started yet, don't need grace period */
 			printf("Server hasn't started yet\n");
@@ -909,7 +786,7 @@ void parse_control_command(char * cmd) {
 }
 
 /* main function */
-int main(void) {
+int main(int argc, char* argv[]) {
     int listener_fd;
 	int fdmax;
 	fd_set master;   // master file descriptor list
@@ -921,19 +798,16 @@ int main(void) {
 	pthread_t connector, receiver;
 	char user_input[BUF_MAX];
 
-//	if (argc != 4) {
-//		printf("Usage: ./client [gbn|sr] [window_size] [loss_rate]\n");
-//		exit(1);
-//	}
-//
-//	char * protocol = argv[1];
-//	int window_size = atoi(argv[2]);
-//	double loss_rate;
-//	sscanf(argv[3], "%lf", &loss_rate);
-    char * protocol = "gbn";
-    int window_size = 3;
-    double loss_rate = 0.5f;
-    datalink(protocol, window_size, loss_rate);
+	if (argc != 4) {
+		printf("Usage: ./server [gbn|sr] [window_size] [loss_rate]\n");
+		exit(1);
+	}
+
+	char * protocol = argv[1];
+	int window_size = atoi(argv[2]);
+	double loss_rate;
+	sscanf(argv[3], "%lf", &loss_rate);
+    datalink_init(protocol, window_size, loss_rate);
     printf("protocol = %s, window_size = %d, loss_rate = %lf\n", protocol, window_size, loss_rate);
 
 	print_ascii_art();

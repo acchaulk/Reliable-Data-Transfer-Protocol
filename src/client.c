@@ -17,6 +17,7 @@
 #include <libgen.h>
 #include <arpa/inet.h>
 #include <pthread.h>
+#include <signal.h>
 
 #include "common.h"
 #include "control_msg.h"
@@ -30,13 +31,6 @@ char *g_partner_name = NULL;
 char *g_client_name = NULL;
 FILE *g_FP;
 
-/* get sockaddr, IPv4 or IPv6 */
-void *get_in_addr(struct sockaddr *sa) {
-    if (sa->sa_family == AF_INET) {
-        return &(((struct sockaddr_in*)sa)->sin_addr);
-    }
-    return &(((struct sockaddr_in6*)sa)->sin6_addr);
-}
 
 /* handles messages recieved from the server and contains state machine for the client */
 void* receiver_thread(void* args) {
@@ -53,7 +47,7 @@ void* receiver_thread(void* args) {
 //			exit(1);
 //		}
 		if ((numbytes = datalink_recv(sockfd, buf, BUF_MAX)) == -1) {
-			perror("recv IN_SESSION fails");
+			perror("receiver_thread recv fails");
 			exit(1);
 		}
     	buf[numbytes + 1] = '\0';
@@ -155,83 +149,7 @@ void* receiver_thread(void* args) {
 	return 0;
 }
 
-/* handler for the connnect command
- * return sockfd if success, otherwise -1 */
-int handle_connect(char *hostname, char *port) {
-    // TODO: use hostname instead of ip address
-	int sockfd, numbytes;
-	struct addrinfo hints, *servinfo, *p;
-	int rv;
-	char s[INET6_ADDRSTRLEN];
-	fd_set fdset;
-	struct timeval tv;
 
-	memset(&hints, 0, sizeof hints);
-	hints.ai_family = AF_UNSPEC;
-	hints.ai_socktype = SOCK_STREAM;
-
-    if ((rv = getaddrinfo(hostname, port, &hints, &servinfo)) != 0) {
-        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
-        return -1;
-    }
-
-    // loop through all the results and connect to the first we can
-    for(p = servinfo; p != NULL; p = p->ai_next) {
-        if ((sockfd = socket(p->ai_family, p->ai_socktype,
-                        p->ai_protocol)) == -1) {
-            perror("client: socket");
-            continue;
-        }
-
-        if (connect(sockfd, p->ai_addr, p->ai_addrlen) == -1) {
-            close(sockfd);
-            perror("client: connect");
-            continue;
-        }
-
-        break;
-    }
-
-    if (p == NULL) {
-        printf("failed to connect server\n");
-        return -1;
-    }
-
-    inet_ntop(p->ai_family, get_in_addr((struct sockaddr *)p->ai_addr),
-            s, sizeof s);
-    printf("client: connecting to %s\n", s);
-
-    freeaddrinfo(servinfo); // all done with this structure
-
-    char * buf = malloc(BUF_MAX);
-    if ((numbytes = datalink_recv(sockfd, buf, BUF_MAX)) == -1) {
-        perror("datalink_recv");
-        exit(1);
-    }
-
-    buf[numbytes] = '\0';
-    printf("receive '%s' from server\n", buf);
-
-    /* server returns [ACK:user_name] */
-    char *token[PARAMS_MAX];
-    char *str;
-    int count = 0;
-    while ((token[count++] = strsep(&buf, ":")) != NULL);
-
-	if (strcmp(token[0], MSG_ACK) != 0) {
-		printf("expected %s but recv invalid control message: %s \n", MSG_ACK, buf);
-		free(buf);
-		return -1;
-	}
-
-	g_client_name = strdup(token[1]);
-	printf("Connect to server successfully. Your user name is %s. Type '%s' to start chatting\n",
-			g_client_name, CHAT);
-	g_state = CONNECTING;
-	free(buf);
-	return sockfd;
-
-}
 
 /* handler for the chat command
  * return 0 for success, otherwise -1 */
@@ -266,12 +184,14 @@ int send_text(int sockfd, char * text) {
 
 /* request help messages from server */
 void request_help() {
-//	if (send(g_sockfd, MSG_HELP, sizeof(MSG_HELP), 0) == 0) {
-//		perror("send help request fails");
-//	}
 	if (datalink_send(g_sockfd, MSG_HELP, sizeof(MSG_HELP)) < 0) {
 		perror("send help request fails");
 	}
+	char * buf = malloc(BUF_MAX);
+	if (datalink_recv(g_sockfd, buf, BUF_MAX) < 0) {
+		perror("recv help fails");
+	}
+	printf("\n%s\n", buf);
 }
 
 /* handler for the client quitting the chat channel */
@@ -293,45 +213,6 @@ int handle_flag() {
 		return -1;
 	}
 	printf("send flag to server successfully\n");
-	return 0;
-}
-
-/* handler for opening a file */
-int open_file(const char * input_file) {
-
-	int bytesReceived = 0;
-	char recvBuff[BUF_MAX + 1];
-
-	char filepath[BUF_MAX];
-	sprintf(filepath, "recv/%s", input_file);
-	g_FP = fopen(filepath, "w");
-	if (NULL == g_FP) {
-		printf("Error opening file");
-		return -1;
-	}
-
-	return 0;
-}
-
-int receive_file(char * filebuf, char * msg_transfer_complete) {
-
-	/* Receive data in chunks of 256 bytes */
-	if (filebuf) {
-		fwrite(filebuf, 1, strlen(filebuf), g_FP);
-		/* search for completion flag inside chunk */
-		if (msg_transfer_complete) {
-			fclose(g_FP);
-			g_FP = NULL;
-			g_state = CHATTING;
-			if (send(g_sockfd, MSG_RECEIVE_SUCCESS, strlen(MSG_RECEIVE_SUCCESS), 0) == -1) {
-				perror("response receive success fails");
-			}
-			printf("File transfer success!\n");
-		}
-	} else {
-		printf("\n Read Error \n");
-	}
-
 	return 0;
 }
 
@@ -425,11 +306,12 @@ void parse_control_command(char * cmd) {
 				printf("Usage: %s [hostname]\n", CONNECT);
 				return;
 			}
-			g_sockfd = handle_connect(params[1], PORT);
+			g_sockfd = create_connection(params[1], RECV_PORT);
+			g_state = CONNECTING;
 			if (g_sockfd == -1) {
 				return;
 			}
-			pthread_create(&receiver, NULL, &receiver_thread, (void *)&g_sockfd);
+			//pthread_create(&receiver, NULL, &receiver_thread, (void *)&g_sockfd);
 		} else if (strcmp(params[0], CHAT) == 0) {
 			printf("Error: You need connect to server first.\n");
 		} else if (strcmp(params[0], TRANSFER) == 0) {
@@ -515,6 +397,56 @@ void parse_control_command(char * cmd) {
 
 }
 
+
+/* main loop to be executed, handles the state transition */
+void * client_loop(void * arg) {
+    int listener_fd;
+	int fdmax;
+	fd_set master;   // master file descriptor list
+	fd_set read_fds; // tmp file descriptor list for select
+	int i, j;
+	pthread_t connector, receiver;
+
+	FD_ZERO(&master);    // clear the master and temp sets
+	FD_ZERO(&read_fds);
+
+    // create socket and listen on it
+	listener_fd = listen_connection(SEND_PORT);
+
+	//g_state = SERVER_RUNNING;
+
+    // add the listener to the g_master set
+    FD_SET(listener_fd, &master);
+
+	// keep track of the biggest file descriptor
+	fdmax = listener_fd;
+
+//	struct sigaction sa;
+//	/* Install timer_handler as the signal handler for SIGVTALRM. */
+//	memset (&sa, 0, sizeof (sa));
+//	sa.sa_handler = &exit_server;
+//	sigaction (SIGINT, &sa, NULL);
+
+	while(1) {
+	    read_fds = master; // copy it
+		if (select(fdmax + 1, &read_fds, NULL, NULL, NULL) == -1 ) {
+            perror("select() fails");
+			exit(4);
+		}
+		// run through the existing connections looking for data to read
+		for (i = 0; i <= fdmax; i++) {
+			if (FD_ISSET(i, &read_fds)) {
+				if (i == listener_fd) {
+					// getting new incoming connection
+					accept_connection(listener_fd, &fdmax, &master);
+				} else {
+					// handling data from client
+				}
+			}
+		}
+	}
+}
+
 /* main loop for the client program */
 int main(int argc, char *argv[])
 {
@@ -523,23 +455,22 @@ int main(int argc, char *argv[])
 	int i;
 	int connected = 0; /* 0 means unconnected, 1 means connected*/
     struct thread_info *tinfo;
+    pthread_t g_connector;
 
-//    if (argc != 4) {
-//    	printf("Usage: ./client [gbn|sr] [window_size] [loss_rate]\n");
-//    	exit(1);
-//    }
-//
-//    char * protocol = argv[1];
-//    int window_size = atoi(argv[2]);
-//    double loss_rate;
-//    sscanf(argv[3], "%lf", &loss_rate);
-    char * protocol = "gbn";
-    int window_size = 3;
-    double loss_rate = 0.5f;
-    datalink(protocol, window_size, loss_rate);
+    if (argc != 4) {
+    	printf("Usage: ./client [gbn|sr] [window_size] [loss_rate]\n");
+    	exit(1);
+    }
+
+    char * protocol = argv[1];
+    int window_size = atoi(argv[2]);
+    double loss_rate;
+    sscanf(argv[3], "%lf", &loss_rate);
+    datalink_init(protocol, window_size, loss_rate);
     printf("protocol = %s, window_size = %d, loss_rate = %lf\n", protocol, window_size, loss_rate);
 
     print_ascii_art();
+    pthread_create(&g_connector, NULL, &client_loop, NULL);
 
     while (1) {
 		printf("%s> ", g_client_name == NULL ? "" : g_client_name); // prompt

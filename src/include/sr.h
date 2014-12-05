@@ -10,8 +10,8 @@
 
 #include <stdlib.h>
 
+void sr_init(int windowSize, double lossRate, double corruptionRate);
 size_t sr_send(int sockfd, char* buf, size_t length);
 size_t sr_recv(int sockfd, char* buf, size_t length);
-void sr(int window_size, double loss_rate);
 
 #endif /* SR_H_ */

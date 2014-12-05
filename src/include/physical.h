@@ -11,6 +11,8 @@
 #include "packet.h"
 #include "stdlib.h"
 
+void physical_init(double lossRate, double corruptionRate);
+
 int physical_send(int sockfd, Packet_t* pkt, size_t data_length);
 
 size_t physical_recv(int sockfd, Packet_t* pkt, size_t data_length);

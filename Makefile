@@ -2,19 +2,33 @@
 # Makefile of Text ChatRoullette
 #
 
-SERVER_SRC := server.c \
-                                  common.c \
-                                  datalink.c \
-                                  physical.c \
-                                  gbn.c \
-                                  sr.c
+#SERVER_SRC := server.c \
+#                                  datalink.c \
+#                                  gbn.c \
+#                                  sr.c \
+#                                  common.c \
+#                                  physical.c
 
-CLIENT_SRC := client.c  \
-                                  common.c \
+SERVER_SRC := dummyServer.c \
+                                      datalink.c \
+                                      gbn.c \
+                                      sr.c \
+                                      common.c \
+                                      physical.c
+
+#CLIENT_SRC := client.c  \
+#                                  datalink.c \
+#                                  gbn.c \
+#                                  sr.c \
+#                                  common.c \
+#                                  physical.c               
+
+CLIENT_SRC := dummyClient.c  \
                                   datalink.c \
-                                  physical.c \
                                   gbn.c \
-                                  sr.c
+                                  sr.c \
+                                  common.c \
+                                  physical.c                         
 
 # Predefine directories
 PWD := $(shell pwd;cd)
