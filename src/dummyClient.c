@@ -36,14 +36,15 @@ int main(int argc, char* argv[]) {
 	int sockfd = create_connection(SERV_HOST, SEND_PORT);
 
 	char * buffer;
-	int length = read_file("Project_1.pdf", &buffer);
+	int length = read_file("test.txt", &buffer);
 	if (length == -1) {
 		printf("file is not found\n");
 		exit(1);
 	}
 	datalink_send(sockfd, buffer, length);
-	close(sockfd);
+	write_sender_stats("log/client.txt");
 	getchar();
+	close(sockfd);
 
 	return 0;
 }

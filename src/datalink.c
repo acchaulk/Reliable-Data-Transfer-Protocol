@@ -17,7 +17,6 @@
 #include <time.h>		/* for gettime() */
 
 #include "datalink.h"
-#include "packet.h"
 #include "common.h"
 #include "gbn.h"
 #include "sr.h"
@@ -45,6 +44,6 @@ size_t datalink_send(int sockfd, char* buf, size_t length) {
 	return (g_datalink.send)(sockfd, buf, length);
 }
 
-size_t datalink_recv(int sockfd, char* buf, size_t length) {
-	return (g_datalink.recv)(sockfd, buf, length);
+size_t datalink_recv(int sockfd, char* buf) {
+	return (g_datalink.recv)(sockfd, buf);
 }

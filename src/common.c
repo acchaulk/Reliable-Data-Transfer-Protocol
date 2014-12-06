@@ -263,3 +263,23 @@ int read_file(const char * input_file, char** buffer) {
 	return nread;
 }
 
+// checksum function
+unsigned short calcChecksum(Packet_t *pkt) {
+	unsigned short * buffer = (unsigned short *)pkt;
+	unsigned long sum = 0;
+
+	int size = sizeof(*pkt);
+	while (size > 1) {
+		sum += *buffer++;
+		size -= sizeof(unsigned short);
+	}
+
+	if (size > 0) {
+		sum += *(unsigned char *)buffer;
+	}
+
+	sum = (sum >> 16) + (sum & 0xffff);
+	sum += (sum >> 16);
+	return (unsigned short)(~sum);
+}
+
