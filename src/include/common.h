@@ -6,6 +6,7 @@
 #define __COMMON_H__
 
 #include <stdio.h>
+#include <sys/select.h>
 
 typedef enum { INIT, CONNECTING, CHATTING, TRANSFERING } client_state_t;
 typedef enum { SERVER_INIT, SERVER_RUNNING,  GRACE_PERIOD } server_state_t;
@@ -70,6 +71,8 @@ FILE* open_file(const char * input_file);
 int receive_file(FILE* fp, char * filebuf, int length);
 int read_file(const char * input_file, char** buffer);
 unsigned short calcChecksum(Packet_t *pkt);
+void write_sender_stats(const char* path);
+void write_receiver_stats(const char* path);
 
 Stats_t g_gbnStat;
 

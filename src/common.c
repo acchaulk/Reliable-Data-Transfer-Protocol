@@ -283,3 +283,29 @@ unsigned short calcChecksum(Packet_t *pkt) {
 	return (unsigned short)(~sum);
 }
 
+void write_sender_stats(const char* path) {
+	FILE *fp = fopen(path, "a");
+	if (!fp) {
+		perror("create stat file fails");
+		return;
+	}
+	fprintf(fp, "The total number of frames need to transmitted: %d\n", g_gbnStat.actualFrames);
+	fprintf(fp, "The total number of data frames transmitted: %d\n", g_gbnStat.frameSent);
+	fprintf(fp, "The total number of retransmissions: %d\n", g_gbnStat.frameRetrans);
+	fprintf(fp, "The total number of acknowledgements received: %d\n", g_gbnStat.ackRecv);
+	fprintf(fp, "The file size: %d\n", g_gbnStat.filesize);
+	fprintf(fp, "The total number of bytes sent: %d\n", g_gbnStat.bytesSent);
+	fprintf(fp, "The total milliseconds taken to complete the request: %d\n\n\n", g_gbnStat.timeTaken);
+	fclose(fp);
+}
+
+void write_receiver_stats(const char* path) {
+	FILE *fp = fopen(path, "a");
+	if (!fp) {
+		perror("create stat file fails");
+		return;
+	}
+	fprintf(fp, "The total number of acknowledgements sent: %d\n", g_gbnStat.ackSent);
+	fprintf(fp, "The total number of duplicate frames received: %d\n\n\n", g_gbnStat.dupFrameRecv);
+	fclose(fp);
+}
