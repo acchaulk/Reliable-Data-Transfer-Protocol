@@ -20,46 +20,66 @@
 #include "physical.h"
 
 static int g_windowSize;
+static timer_t *g_timerList = NULL;
 
 static int g_statsPktRecv = 0;
 static int g_statsPktSent = 0;
+static pthread_t g_masterThread;
 
-int tries = 0;			/* Count of times sent - GLOBAL for signal-handler access */
-int sendflag = 1;
+int g_tries = 0;			/* Count of times sent - GLOBAL for signal-handler access */
+int g_sendflag = 1;
 
-void
-CatchAlarm (int ignored)	/* Handler for SIGALRM */
-{
-	tries += 1;
-	sendflag = 1;
-	g_gbnStat.frameRetrans += g_statsPktSent - g_statsPktRecv;
-}
+//void
+//CatchAlarm (int ignored)	/* Handler for SIGALRM */
+//{
+//	tries += 1;
+//	sendflag = 1;
+//	g_gbnStat.frameRetrans += g_statsPktSent - g_statsPktRecv;
+//}
 
-void
-DieWithError (char *errorMessage)
-{
+void dummy_handler(int ingored) {}
+
+void die (char *errorMessage) {
 	perror (errorMessage);
 	exit (1);
 }
 
-int
-max (int a, int b)
-{
-	if (b > a)
-		return b;
-	return a;
+int max (int a, int b) {
+	return (b > a) ? b : a;
 }
 
-int
-min(int a, int b)
-{
-	if(b>a)
-		return a;
-	return b;
+int min(int a, int b) {
+	return (b > a) ? a : b;
+}
+
+static void handler(union sigval si) {
+	int i;
+	for (i = 0; i < g_windowSize; i++) {
+		if (&(g_timerList[i]) == si.sival_ptr) {
+			// trigger retransmission
+			g_tries += 1;
+			g_sendflag = 1;
+			g_gbnStat.frameRetrans += g_statsPktSent - g_statsPktRecv;
+			pthread_kill(g_masterThread, SIGALRM);
+			return;
+		}
+	}
 }
 
 void gbn_init(int windowSize, double lossRate, double corruptionRate) {
 	g_windowSize = windowSize;
+
+	g_masterThread = pthread_self();
+//	sigset_t signal_set;
+//	sigemptyset(&signal_set);
+//	sigaddset(&signal_set, SIGALRM);
+//	sigprocmask(SIG_BLOCK, &signal_set, NULL);
+
+	// create timer list, although GBN only uses one
+	g_timerList = malloc(sizeof(timer_t) * g_windowSize);
+//	bzero(g_timerList, sizeof(timer_t) * g_windowSize);
+	make_timer(g_timerList, 0, handler, 0);
+
 	physical_init(lossRate, corruptionRate);
 	memset(&g_gbnStat, 0, sizeof(g_gbnStat));
 }
@@ -81,40 +101,40 @@ size_t gbn_send(int sockfd, char* buffer, size_t length) {
 	g_gbnStat.filesize = length;
 
 	/* Set signal handler for alarm signal */
-	timerAction.sa_handler = CatchAlarm;
+	timerAction.sa_handler = dummy_handler;
 	/* block everything in handler */
 	if (sigfillset (&timerAction.sa_mask) < 0) {
-		DieWithError ("sigfillset() failed");
+		die ("sigfillset() failed");
 	}
 	timerAction.sa_flags = 0;
 	if (sigaction (SIGALRM, &timerAction, 0) < 0) {
-		DieWithError ("sigaction() failed for SIGALRM");
+		die ("sigaction() failed for SIGALRM");
 	}
 
 	clock_t start = clock(), diff;
 	/* Send the string to the server */
-	while ((pkt_recv < nPackets-1) && (tries < MAXTRIES))
-	{
-		// printf ("in the send loop base %d packet_sent %d packet_received %d\n",
-		//      base, packet_sent, packet_received);
-		if (sendflag > 0)	{
-			sendflag = 0;
+	while ((pkt_recv < nPackets-1) && (g_tries < MAXTRIES)) {
+		if (g_sendflag > 0)	{
+			g_sendflag = 0;
 			int ctr; /*window size counter */
-			for (ctr = 0; ctr < g_windowSize; ctr++)
-			{
-				pkt_send = min(max (base + ctr, pkt_send),nPackets-1); /* calc highest packet sent */
-				Frame_t currFrame; /* current packet we're working with */
-				if ((base + ctr) < nPackets)
-				{
+			for (ctr = 0; ctr < g_windowSize; ctr++) {
+				/* calc highest packet sent */
+				pkt_send = min(max (base + ctr, pkt_send),nPackets-1);
+
+				/* current packet we're working with */
+				Frame_t currFrame;
+				if ((base + ctr) < nPackets) {
 					memset(&currFrame,0,sizeof(currFrame));
-					printf ("sending packet %d packet_sent %d packet_received %d\n",
+					printf ("---- SEND PACKET %d packet_sent %d packet_received %d\n",
 							base+ctr, pkt_send, pkt_recv);
 
-					currFrame.pkt.type = htonl (PACKET); /*convert to network endianness */
+					/*convert to network endianness */
+					currFrame.pkt.type = htonl (PACKET);
 					currFrame.pkt.seq_no = htonl (base + ctr);
 
+					/* length chunksize except last packet */
 					int currlength;
-					if ((length - ((base + ctr) * CHUNKSIZE)) >= CHUNKSIZE) /* length chunksize except last packet */
+					if ((length - ((base + ctr) * CHUNKSIZE)) >= CHUNKSIZE)
 						currlength = CHUNKSIZE;
 					else
 						currlength = length % CHUNKSIZE;
@@ -132,7 +152,7 @@ size_t gbn_send(int sockfd, char* buffer, size_t length) {
 //					printf("send size: %d, actual size:%d\n", FRAME_HEADER + currlength, sizeof(currFrame));
 					int bytes = physical_send(sockfd, &currFrame, FRAME_HEADER + currlength);
 					if ( bytes < 0) {
-						DieWithError
+						die
 						("physical_send() sent a different number of bytes than expected");
 					} else if (bytes == 0) {
 						printf("drop packet %d\n", ntohl(currFrame.pkt.seq_no));
@@ -140,24 +160,26 @@ size_t gbn_send(int sockfd, char* buffer, size_t length) {
 				}
 			}
 		}
+
 		/* Get a response */
 
-		alarm (TIMEOUT);	/* Set the timeout */
+		reset_timer(g_timerList, 0, TIMEOUT, 0); /* Set the timeout */
+
 		Frame_t currAck;
 		respLen = physical_recv (sockfd, &currAck, sizeof(currAck));
 		while (respLen < 0) {
 			if (errno == EINTR)	/* Alarm went off  */
 			{
-				if (tries < MAXTRIES)	/* incremented by signal handler */
+				if (g_tries < MAXTRIES)	/* incremented by signal handler */
 				{
-					printf ("timed out, %d more tries...\n", MAXTRIES - tries);
+					printf ("timed out, %d more tries...\n", MAXTRIES - g_tries);
 					break;
 				}
 				else
-					DieWithError ("No Response");
+					die ("No Response");
 			}
 			else
-				DieWithError ("physical_recv failed");
+				die ("physical_recv failed");
 		}
 
 		/* recvfrom() got something --  cancel the timeout */
@@ -167,39 +189,39 @@ size_t gbn_send(int sockfd, char* buffer, size_t length) {
 			unsigned int checksum = ntohl (currAck.checksum);
 
 			// debug message
-			switch (acktype) {
-			case PACKET:
-				printf("receive PACKET %d checksum=%u\n", ackno, checksum);
-				break;
-			case ACK_MSG:
-				printf("receive ACK %d checksum=%u\n", ackno, checksum);
-				break;
-			case TEARDOWN:
-				printf("receive TEARDOWN %d checksum=%u\n", ackno, checksum);
-				break;
-			default:
-				printf("receive unknown frame\n");
-				break;
-			}
+//			switch (acktype) {
+//			case PACKET:
+//				printf("receive PACKET %d checksum=%u\n", ackno, checksum);
+//				break;
+//			case ACK_MSG:
+//				printf("receive ACK %d checksum=%u\n", ackno, checksum);
+//				break;
+//			case TEARDOWN:
+//				printf("receive TEARDOWN %d checksum=%u\n", ackno, checksum);
+//				break;
+//			default:
+//				printf("receive unknown frame\n");
+//				break;
+//			}
 
 			// TODO: if checksum is not match the data, discard the ACK
 			g_gbnStat.ackRecv++;
 
 			if (ackno > pkt_recv && acktype == ACK_MSG) {
-				printf ("received in-order ACK %d\n", ackno); /* receive/handle ack */
+				printf ("---- RECEIVE IN-ORDER ACK %d\n", ackno); /* receive/handle ack */
 				pkt_recv = ackno;
 				base = pkt_recv + 1; /* handle new ack */
 				g_statsPktRecv = pkt_recv;
 				g_statsPktSent = pkt_send;
 				if (pkt_recv == pkt_send) { /* all sent packets acked */
 					alarm (0); /* clear alarm */
-					tries = 0;
-					sendflag = 1;
+					g_tries = 0;
+					g_sendflag = 1;
 				}
 				else { /* not all sent packets acked */
-					tries = 0; /* reset retry counter */
-					sendflag = 0;
-					alarm(TIMEOUT); /* reset alarm */
+					g_tries = 0; /* reset retry counter */
+					g_sendflag = 0;
+					reset_timer(g_timerList, 0, TIMEOUT, 0);  /* reset alarm */
 				}
 			}
 		}
@@ -250,7 +272,7 @@ size_t gbn_recv(int sockfd, char* buffer) {
 		if (currFrame.pkt.type == TEARDOWN) /* tear-down message */
 		{
 			// assume tear-down message is always received
-			printf("Receive a teardown msg\n");
+			printf("---- RECEIVE TEARDOWN\n");
 			return recvMsgSize;
 //			printf ("%s\n", buffer);
 //			Packet_t ackmsg;

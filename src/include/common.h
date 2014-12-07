@@ -26,7 +26,7 @@ typedef enum { SERVER_INIT, SERVER_RUNNING,  GRACE_PERIOD } server_state_t;
 #define CHUNKSIZE              100
 #define PACKET_HEADER	       sizeof(int) * 3
 #define FRAME_HEADER           sizeof(unsigned int) + PACKET_HEADER
-#define TIMEOUT                3       // default timeout value for gbn timer, second
+#define TIMEOUT                1       // default timeout value for gbn timer, second
 #define MAXTRIES			   10
 #define DL_BUFFER_SIZE         8000
 

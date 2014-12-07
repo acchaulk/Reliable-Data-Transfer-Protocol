@@ -61,7 +61,7 @@ int main(int argc, char* argv[]) {
 					// handling data from client
 					int bytesRead = datalink_recv(i, buffer);
 					/*parse the file name */
-					char * filename = "test.txt";
+					char * filename = "Project_1.pdf";
 					receive_file (open_file(filename), buffer, bytesRead);
 					printf("receive msg successfully\n");
 					write_receiver_stats("log/server.txt");
