@@ -37,7 +37,7 @@ int g_sendflag = 1;
 //	g_gbnStat.frameRetrans += g_statsPktSent - g_statsPktRecv;
 //}
 
-void dummy_handler(int ingored) {}
+static void dummy_handler(int ingored) {}
 
 void die (char *errorMessage) {
 	perror (errorMessage);
@@ -87,8 +87,8 @@ void gbn_init(int windowSize, double lossRate, double corruptionRate) {
 size_t gbn_send(int sockfd, char* buffer, size_t length) {
 	struct sigaction timerAction;	/* For setting signal handler */
 	int respLen;			/* Size of received datagram */
-	int pkt_recv = -1;	/* highest ack received */
-	int pkt_send = -1;		/* highest packet sent */
+	int pktRecv = -1;	    /* highest ack received */
+	int pktSent = -1;		/* highest packet sent */
 	int nPackets = 0;		/* number of packets to send */
 	int base = 0;
 	int bytesSent = 0;
@@ -113,20 +113,20 @@ size_t gbn_send(int sockfd, char* buffer, size_t length) {
 
 	clock_t start = clock(), diff;
 	/* Send the string to the server */
-	while ((pkt_recv < nPackets-1) && (g_tries < MAXTRIES)) {
+	while ((pktRecv < nPackets-1) && (g_tries < MAXTRIES)) {
 		if (g_sendflag > 0)	{
 			g_sendflag = 0;
 			int ctr; /*window size counter */
 			for (ctr = 0; ctr < g_windowSize; ctr++) {
 				/* calc highest packet sent */
-				pkt_send = min(max (base + ctr, pkt_send),nPackets-1);
+				pktSent = min(max (base + ctr, pktSent),nPackets-1);
 
 				/* current packet we're working with */
 				Frame_t currFrame;
 				if ((base + ctr) < nPackets) {
 					memset(&currFrame,0,sizeof(currFrame));
 					printf ("---- SEND PACKET %d packet_sent %d packet_received %d\n",
-							base+ctr, pkt_send, pkt_recv);
+							base+ctr, pktSent, pktRecv);
 
 					/*convert to network endianness */
 					currFrame.pkt.type = htonl (PACKET);
@@ -207,13 +207,13 @@ size_t gbn_send(int sockfd, char* buffer, size_t length) {
 			// TODO: if checksum is not match the data, discard the ACK
 			g_gbnStat.ackRecv++;
 
-			if (ackno > pkt_recv && acktype == ACK_MSG) {
+			if (ackno > pktRecv && acktype == ACK_MSG) {
 				printf ("---- RECEIVE IN-ORDER ACK %d\n", ackno); /* receive/handle ack */
-				pkt_recv = ackno;
-				base = pkt_recv + 1; /* handle new ack */
-				g_statsPktRecv = pkt_recv;
-				g_statsPktSent = pkt_send;
-				if (pkt_recv == pkt_send) { /* all sent packets acked */
+				pktRecv = ackno;
+				base = pktRecv + 1; /* handle new ack */
+				g_statsPktRecv = pktRecv;
+				g_statsPktSent = pktSent;
+				if (pktRecv == pktSent) { /* all sent packets acked */
 					alarm (0); /* clear alarm */
 					g_tries = 0;
 					g_sendflag = 1;
@@ -221,7 +221,7 @@ size_t gbn_send(int sockfd, char* buffer, size_t length) {
 				else { /* not all sent packets acked */
 					g_tries = 0; /* reset retry counter */
 					g_sendflag = 0;
-					reset_timer(g_timerList, 0, TIMEOUT, 0);  /* reset alarm */
+					//reset_timer(g_timerList, 0, TIMEOUT, 0);  /* reset alarm */
 				}
 			}
 		}
