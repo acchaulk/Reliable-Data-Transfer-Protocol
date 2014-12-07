@@ -7,6 +7,8 @@
 
 #include <stdio.h>
 #include <sys/select.h>
+#include <signal.h>
+#include <time.h>
 
 typedef enum { INIT, CONNECTING, CHATTING, TRANSFERING } client_state_t;
 typedef enum { SERVER_INIT, SERVER_RUNNING,  GRACE_PERIOD } server_state_t;
@@ -59,6 +61,8 @@ typedef struct Statistics {
 	unsigned int dupFrameRecv;   /*receiver*/
 } Stats_t;
 
+typedef void (*timerCallback_t)(union sigval si);
+
 void print_ascii_art();
 
 /* strip leading and trailing whitespace */
@@ -73,7 +77,11 @@ int read_file(const char * input_file, char** buffer);
 unsigned short calcChecksum(Packet_t *pkt);
 void write_sender_stats(const char* path);
 void write_receiver_stats(const char* path);
+void make_timer(timer_t * timers_head, int index, timerCallback_t callback, int timeout);
+void delete_timer(timer_t *head, int index);
+void reset_timer(timer_t *head, int index, int timeout, int interval);
 
 Stats_t g_gbnStat;
+
 
 #endif /* __COMMON_H__ */

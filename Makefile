@@ -50,14 +50,13 @@ SERVER_OBJ := $(patsubst %.c, $(OBJ_DIR)/%.o, $(SERVER_SRC))
 #$(info CLIENT_OBJ=$(CLIENT_OBJ))
 #$(info SERVER_OBJ=$(SERVER_OBJ))
 
-LIBS :=
-
 CLIENT_TARGET := client
 SERVER_TARGET := server
 
-CFLAGS := -g -I$(INCLUDE_DIR) -pthread
+CFLAGS := -g -I$(INCLUDE_DIR) 
+LDFLAGS := -pthread -lrt
 
-all: dir client server
+all: clean dir client server
 
 dir:
 	@mkdir -p $(OBJ_DIR)
@@ -67,10 +66,10 @@ dir:
 
 client: $(CLIENT_OBJ)
 
-	$(CC) $(CFLAGS) -o $(TOPDIR)/$(CLIENT_TARGET) $(CLIENT_OBJ) $(LIBS)
+	$(CC) $(CFLAGS) -o $(TOPDIR)/$(CLIENT_TARGET) $(CLIENT_OBJ) $(LDFLAGS)
 
 server: $(SERVER_OBJ)
-	$(CC) $(CFLAGS) -o $(TOPDIR)/$(SERVER_TARGET) $(SERVER_OBJ) $(LIBS)
+	$(CC) $(CFLAGS) -o $(TOPDIR)/$(SERVER_TARGET) $(SERVER_OBJ) $(LDFLAGS)
 
 clean:
 	rm -rf $(OBJ_DIR) $(LOG_DIR) $(RECV_DIR) $(TOPDIR)/$(CLIENT_TARGET) $(TOPDIR)/$(SERVER_TARGET)

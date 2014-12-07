@@ -130,9 +130,12 @@ size_t gbn_send(int sockfd, char* buffer, size_t length) {
 //					printf("currFrame(type=%d, seq_no=%d, data={%d}, length=%d)\n",
 //							currFrame.pkt.type, currFrame.pkt.seq_no, currFrame.pkt.data[0], currFrame.pkt.length);
 //					printf("send size: %d, actual size:%d\n", FRAME_HEADER + currlength, sizeof(currFrame));
-					if (physical_send(sockfd, &currFrame, FRAME_HEADER + currlength) < 0) {
+					int bytes = physical_send(sockfd, &currFrame, FRAME_HEADER + currlength);
+					if ( bytes < 0) {
 						DieWithError
 						("physical_send() sent a different number of bytes than expected");
+					} else if (bytes == 0) {
+						printf("drop packet %d\n", ntohl(currFrame.pkt.seq_no));
 					}
 				}
 			}

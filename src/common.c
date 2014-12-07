@@ -8,6 +8,8 @@
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <sys/stat.h>
+#include <time.h>
+
 #include "common.h"
 
 void print_ascii_art() {
@@ -308,4 +310,42 @@ void write_receiver_stats(const char* path) {
 	fprintf(fp, "The total number of acknowledgements sent: %d\n", g_gbnStat.ackSent);
 	fprintf(fp, "The total number of duplicate frames received: %d\n\n\n", g_gbnStat.dupFrameRecv);
 	fclose(fp);
+}
+
+void make_timer(timer_t * head, int index, timerCallback_t callback, int timeout) {
+	struct sigevent sev;
+	struct itimerspec its;
+
+	sev.sigev_notify = SIGEV_THREAD;
+	sev.sigev_value.sival_ptr = &(head[index]);
+	sev.sigev_notify_function = callback;
+	timer_create(CLOCK_REALTIME, &sev, &(head[index]));
+
+	/* Start the timer */
+	its.it_value.tv_sec = timeout;
+	its.it_value.tv_nsec = 0;
+	its.it_interval.tv_sec = 0;
+	its.it_interval.tv_nsec = 0;
+
+	timer_settime(head[index], 0, &its, NULL);
+}
+
+void delete_timer(timer_t *head, int index) {
+	if (timer_delete(head[index]) == -1) {
+		perror("delete_timer");
+		exit(1);
+	}
+}
+
+void reset_timer(timer_t *head, int index, int timeout, int interval) {
+	struct itimerspec its;
+	/* Start the timer */
+	its.it_value.tv_sec = timeout;  /* Initial expiration */
+	its.it_value.tv_nsec = 0;
+	its.it_interval.tv_sec = interval;     /* Timer interval */
+	its.it_interval.tv_nsec = 0;
+	if (timer_settime(head[index], CLOCK_REALTIME, &its, NULL) == -1) {
+		perror("reset_timer()");
+		exit(1);
+	}
 }
