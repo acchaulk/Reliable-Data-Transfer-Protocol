@@ -23,7 +23,7 @@ typedef enum { SERVER_INIT, SERVER_RUNNING,  GRACE_PERIOD } server_state_t;
 #define NAME_LENGTH            10     // maximum characters for client name
 #define GRACE_PERIOD_SECONDS   10     // grace period seconds for stopping the server
 
-#define CHUNKSIZE              100
+#define CHUNKSIZE              1000
 #define PACKET_HEADER	       sizeof(int) * 3
 #define FRAME_HEADER           sizeof(unsigned int) + PACKET_HEADER
 #define TIMEOUT                1       // default timeout value for gbn timer, second

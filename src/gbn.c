@@ -26,8 +26,8 @@ static int g_statsPktRecv = 0;
 static int g_statsPktSent = 0;
 static pthread_t g_masterThread;
 
-int g_tries = 0;			/* Count of times sent - GLOBAL for signal-handler access */
-int g_sendflag = 1;
+static int g_tries = 0;			/* Count of times sent - GLOBAL for signal-handler access */
+static int g_sendflag = 1;
 
 //void
 //CatchAlarm (int ignored)	/* Handler for SIGALRM */
@@ -86,7 +86,7 @@ void gbn_init(int windowSize, double lossRate, double corruptionRate) {
 
 size_t gbn_send(int sockfd, char* buffer, size_t length) {
 	struct sigaction timerAction;	/* For setting signal handler */
-	int respLen;			/* Size of received datagram */
+	int respLen;			/* Size of received frame */
 	int pktRecv = -1;	    /* highest ack received */
 	int pktSent = -1;		/* highest packet sent */
 	int nPackets = 0;		/* number of packets to send */
@@ -168,18 +168,16 @@ size_t gbn_send(int sockfd, char* buffer, size_t length) {
 		Frame_t currAck;
 		respLen = physical_recv (sockfd, &currAck, sizeof(currAck));
 		while (respLen < 0) {
-			if (errno == EINTR)	/* Alarm went off  */
-			{
-				if (g_tries < MAXTRIES)	/* incremented by signal handler */
-				{
+			if (errno == EINTR) { /* Alarm went off  */
+				if (g_tries < MAXTRIES)	{ /* incremented by signal handler */
 					printf ("timed out, %d more tries...\n", MAXTRIES - g_tries);
 					break;
-				}
-				else
+				} else {
 					die ("No Response");
-			}
-			else
+				}
+			} else {
 				die ("physical_recv failed");
+			}
 		}
 
 		/* recvfrom() got something --  cancel the timeout */
@@ -205,8 +203,6 @@ size_t gbn_send(int sockfd, char* buffer, size_t length) {
 //			}
 
 			// TODO: if checksum is not match the data, discard the ACK
-			g_gbnStat.ackRecv++;
-
 			if (ackno > pktRecv && acktype == ACK_MSG) {
 				printf ("---- RECEIVE IN-ORDER ACK %d\n", ackno); /* receive/handle ack */
 				pktRecv = ackno;

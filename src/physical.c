@@ -50,11 +50,11 @@ int physical_send(int sockfd, Frame_t* frame, size_t data_length) {
 	}
 
 	size_t numbytes = send(sockfd, frame, data_length, 0);
-	g_gbnStat.frameSent++;
 	if (numbytes == -1) {
 		perror("physical_send() sent a different number of bytes than expected");
 		return -1;
 	}
+	g_gbnStat.frameSent++;
 	return numbytes;
 }
 
@@ -69,5 +69,10 @@ size_t physical_recv(int sockfd, Frame_t* frame, size_t data_length) {
 		printf("corruption detected seq_no %d\n", ntohl(frame->pkt.seq_no));
 		return 0;
 	}
+	int type = ntohl(frame->pkt.type);
+	if (type == ACK_MSG) {
+		g_gbnStat.ackRecv++;
+	}
+
 	return numbytes;
 }
