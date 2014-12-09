@@ -336,14 +336,27 @@ void delete_timer(timer_t *head, int index) {
 	}
 }
 
-void reset_timer(timer_t *head, int index, int timeout, int interval) {
+//void reset_timer(timer_t *head, int index, int timeout, int interval) {
+//	struct itimerspec its;
+//	/* Start the timer */
+//	its.it_value.tv_sec = timeout;  /* Initial expiration */
+//	its.it_value.tv_nsec = 0;
+//	its.it_interval.tv_sec = interval;     /* Timer interval */
+//	its.it_interval.tv_nsec = 0;
+//	if (timer_settime(head[index], CLOCK_REALTIME, &its, NULL) == -1) {
+//		perror("reset_timer()");
+//		exit(1);
+//	}
+//}
+
+void reset_timer(timer_t timerid, int timeout, int interval) {
 	struct itimerspec its;
 	/* Start the timer */
 	its.it_value.tv_sec = timeout;  /* Initial expiration */
 	its.it_value.tv_nsec = 0;
 	its.it_interval.tv_sec = interval;     /* Timer interval */
 	its.it_interval.tv_nsec = 0;
-	if (timer_settime(head[index], CLOCK_REALTIME, &its, NULL) == -1) {
+	if (timer_settime(timerid, CLOCK_REALTIME, &its, NULL) == -1) {
 		perror("reset_timer()");
 		exit(1);
 	}
@@ -403,4 +416,5 @@ void help() {
 	printf("%-10s - send file to other client.\n", TRANSFER);
 	printf("%-10s - print statistics information.\n", STATS);
 	printf("%-10s - print help information.\n", HELP);
+	printf("%-10s - exit the program gracefully.\n", EXIT);
 }

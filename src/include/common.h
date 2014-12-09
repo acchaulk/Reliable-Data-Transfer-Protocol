@@ -22,11 +22,11 @@ typedef enum { SERVER_INIT, SERVER_RUNNING,  GRACE_PERIOD } server_state_t;
 #define NAME_LENGTH            10     // maximum characters for client name
 #define GRACE_PERIOD_SECONDS   10     // grace period seconds for stopping the server
 
-#define CHUNKSIZE              1000
+#define CHUNKSIZE              10000
 #define PACKET_HEADER	       sizeof(int) * 3
 #define FRAME_HEADER           sizeof(unsigned int) + PACKET_HEADER
 #define TIMEOUT                1       // default timeout value for gbn timer, second
-#define MAXTRIES			   10
+#define MAXTRIES			   1000
 #define DL_BUFFER_SIZE         8000
 #define FILENAME_SIZE          20
 #define MSG_SIZE			   10*1024*1024
@@ -94,7 +94,8 @@ void write_sender_stats(const char* path);
 void write_receiver_stats(const char* path);
 void make_timer(timer_t * timers_head, int index, timerCallback_t callback, int timeout);
 void delete_timer(timer_t *head, int index);
-void reset_timer(timer_t *head, int index, int timeout, int interval);
+//void reset_timer(timer_t *head, int index, int timeout, int interval);
+void reset_timer(timer_t timerid, int timeout, int interval);
 void chat(int sockfd, const char* message);
 void transfer(int sockfd, const char* filename);
 void store(Message_t * msg, int bytesRead);

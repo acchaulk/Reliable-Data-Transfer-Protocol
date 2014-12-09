@@ -16,7 +16,7 @@ static int g_windowSize;
 static pthread_t g_masterThread;
 static timer_t *g_timerList;
 static int* g_pktAck;  /*1 for ACK, 0 for non-ACK, vector for keeping track of each ack within slide window */
-static int* g_sendflag;
+static int* g_sendflag; /*1 for need resend, 0 for no need to resend */
 static ackTimer_t* ackTimer;
 
 // Only purpose here is changing the default behavior of SIGALRM
@@ -24,11 +24,13 @@ static void dummy_handler(int ingored) {}
 
 static void handler(union sigval si) {
 	int i;
+	printf("handler being triggered\n");
 	for (i = 0; i < g_windowSize; i++) {
 		if (ackTimer[i].timer_id == si.sival_ptr) {
 			// trigger retransmission, implement the code here
-			g_sendflag[ackTimer[i].seq_no % g_windowSize] = 1;
-			printf("timer %d timeout\n", ackTimer[i].seq_no);
+			g_sendflag[i] = 1;
+			printf("timer %d timeout, set g_sendflag[%d] to 1\n",
+					ackTimer[i].seq_no, i);
 			pthread_kill(g_masterThread, SIGALRM);
 			return;
 		}
@@ -43,15 +45,15 @@ void dequeue_flag(int* sendflag) {
 	sendflag[i] = 1;
 }
 
-//void dequeue_ackTimer(ackTimer_t* ackTimer) {
-//	int i;
-//	for (i = 0; i < g_windowSize - 1; i++) {
-//		ackTimer[i].seq_no = ackTimer[i + 1].seq_no;
-//		ackTimer[i].timer_id = ackTimer[i + 1].timer_id;
-//	}
-//	ackTimer[i].seq_no = -1;
-//	ackTimer[i].timer_id = 0;
-//}
+void dequeue_ackTimer(ackTimer_t* ackTimer) {
+	int i;
+	for (i = 0; i < g_windowSize - 1; i++) {
+		ackTimer[i].seq_no = ackTimer[i + 1].seq_no;
+		ackTimer[i].timer_id = ackTimer[i + 1].timer_id;
+	}
+	ackTimer[i].seq_no = -1;
+	ackTimer[i].timer_id = 0;
+}
 
 void sr_init(int windowSize, double lossRate, double corruptionRate) {
 	int i;
@@ -150,10 +152,27 @@ size_t sr_send(int sockfd, char* buffer, size_t length) {
 					}
 
 					/* start a timer to track the packet */
-					reset_timer(g_timerList, ctr, TIMEOUT, 0);
-					ackTimer[ctr].timer_id = g_timerList + ctr;
+					int i, j;
+					for (i = 0; i < g_windowSize; i++) {
+						int found = 0;
+						for (j = 0; j < g_windowSize; j++) {
+							if (&(g_timerList[i]) == ackTimer[j].timer_id) {
+								found = 1;
+								break;
+							}
+						}
+						if (!found) {
+							break;
+						}
+					}
+					if (i == 3) {
+						i = 0; // hack for empty in-use ackTimer table
+					}
+					printf("timer[%d] is free, g_windowSize=%d\n", i, g_windowSize);
+					ackTimer[ctr].timer_id = &(g_timerList[i]);// we should use the available timer
 					ackTimer[ctr].seq_no = base + ctr;
-					printf ("start timer[%d] for PACKET %d\n", ctr, base + ctr);
+					reset_timer(*(ackTimer[ctr].timer_id), TIMEOUT, 0);
+					printf ("start timer[%d] for PACKET %d\n", i, base + ctr);
 				} /* if ((base + ctr) < nPackets) */
 			} /* if (g_sendflag > 0) */
 		} /* for loop */
@@ -177,24 +196,53 @@ size_t sr_send(int sockfd, char* buffer, size_t length) {
 			int acktype = ntohl (currAck.pkt.type); /* convert to host byte order */
 			int ackno = ntohl (currAck.pkt.seq_no);
 			if (acktype == ACK_MSG) {
-				if (ackno == base) {
-					base++;
-					dequeue_flag(g_sendflag);
-				} else if (ackno > base) {
-					g_sendflag[ackno % g_windowSize] = 1;
+				printf ("---- RECEIVE ACK %d\n", ackno); /* receive/handle ack */
+				if (g_pktAck[ackno] == 1) {
+					continue; // duplicate ack
 				}
+				/* Set the corresponding Ack vector to 1 */
+				g_pktAck[ackno] = 1;
+
 				//cancel timer of this packet
 				int i;
 				for (i = 0; i < g_windowSize; i++) {
 					if (ackTimer[i].seq_no == ackno) {
-						reset_timer(g_timerList, i, 0, 0);
-						printf ("cancel timer[%d] for PACKET %d (slide window: %d)\n", i, ackno, base);
+						reset_timer(*(ackTimer[i].timer_id), 0, 0);
+						int j;
+						for (j = 0; j < g_windowSize; j++) {
+							if (*(ackTimer[i].timer_id) == g_timerList[j]) {
+								printf ("cancel timer[%d] for PACKET %d (slide window: %d)\n", j, ackno, base);
+							}
+						}
 					}
 				}
+				if (ackno == base) {
+					int k;
+					for (k = base; k < nPackets; k++) {
+						if (g_pktAck[k] == 1) {
+							printf("g_pktAck[%d]=1\n", k);
+							base++;
+							dequeue_flag(g_sendflag);
+							dequeue_ackTimer(ackTimer);
+						} else {
+							break;
+						}
+					}
+//					dequeue_flag(g_sendflag);
+//					dequeue_ackTimer(ackTimer);
+				} else if (ackno > base) {
+					g_sendflag[ackno % g_windowSize] = 0;
+					int k;
+					for (k = 0; k < g_windowSize; k++) {
+						if (ackTimer[k].seq_no == ackno) {
+							ackTimer[k].timer_id = NULL;
+							ackTimer[k].seq_no = -1;
+						}
+					}
+
+				}
 				ackRecv++;
-				/* Set the corresponding Ack vector to 1 */
-				g_pktAck[ackno] = 1;
-				printf ("---- RECEIVE ACK %d\n", ackno); /* receive/handle ack */
+
 			}
 		}
 	} /* while ((ackRecv < nPackets-1)) */

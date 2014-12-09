@@ -1,14 +1,23 @@
 Reliable Data Transfer Protocol
 Adam Chaulk and Yang Lu
 
-To build the project, run "make all" in the command line.
+The purpose of this project was to implement both GBN and Selective Repeat transfer protocols, and provide 
+simple application layer commands to demonstrate them.
 
-The purpose of this project was to implement both GBN and Selective Repeat transfer protocols. We were only able to 
-complete a partial implementation of GBN, as we started the project in C++ and had to revert many of our changes.
+Build and Run:
+	To build the project, run "make all" in the command line.
+	To run the server, run: "./server gbn windowSize lossRate". Next, start the server with /start
+	To run the client, run: "./client gbn windowSize lossRate" and type /connect localhost and /help for available commands. 
 
-To run the server, run: "./server gbn windowSize lossRate". Next, start the server with /start
-TO run the client, run: "./client gbn windowSize lossRate" and type /connect localhost and /help for available commands. 
+The commands available are as follows:
+	"/connect hostname" - command for the client side to connect to the server
+	"/start" - command on server side that starts the server
+	"/transfer path/to/file" - transfer the specified message to the other person
+	"/chat message" - sends the specified message to the other person
+	"/stats" - writes stats to output folder in the "log" directory. Creates two files, a sender and reciever stats file
+	"/help" - displays the commands available for client or sever
+	"/exit" - exits the program
 
-For the distribution of the work, we pair programed for this assignment.
+For the distribution of the work, we pair programmed for this assignment.
 
 

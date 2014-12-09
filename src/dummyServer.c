@@ -13,19 +13,6 @@
 static fd_set g_master;   // master file descriptor list
 static int g_fdmax;
 
-static void grace_exit(int signum) {
-	int i;
-	for (i = 0; i <= g_fdmax; i++) {
-		if (FD_ISSET(i, &g_master)) {
-			if (datalink_send(i, MSG_REMOTE_SHUTDOWN, strlen(MSG_REMOTE_SHUTDOWN)) == -1) {
-				perror("notify client fails");
-			}
-		}
-	}
-	sleep(1);
-	exit(1);
-}
-
 int main(int argc, char* argv[]) {
 	if (argc != 5) {
 		fprintf (stderr, "Usage: %s [gbn|sr] [window_size] [loss_rate] [corruption_rate]\n", argv[0]);
@@ -46,11 +33,11 @@ int main(int argc, char* argv[]) {
 		exit(1);
 	}
 
-	struct sigaction sa;
-	/* Install timer_handler as the signal handler for SIGINT. */
-	memset (&sa, 0, sizeof (sa));
-	sa.sa_handler = &grace_exit;
-	sigaction (SIGINT, &sa, NULL);
+//	struct sigaction sa;
+//	/* Install timer_handler as the signal handler for SIGINT. */
+//	memset (&sa, 0, sizeof (sa));
+//	sa.sa_handler = &grace_exit;
+//	sigaction (SIGINT, &sa, NULL);
 
 	char *buffer = malloc(100*1024*1024);		/* 100M buffer */
 
@@ -81,18 +68,11 @@ int main(int argc, char* argv[]) {
 					memset (buffer, 0, 100*1024*1024);		/* zero out the buffer */
 					// handling data from client
 					int bytesRead = datalink_recv(i, buffer);
-
-					if (strcmp(buffer, MSG_REMOTE_SHUTDOWN) == 0) {
-						printf("receive remote shutdown\n");
-						close(i);
-						FD_CLR(i, &g_master);
-					} else {
-						/*parse the file name */
-						char * filename = "Project_1.pdf";
-						receive_file (open_file(filename), buffer, bytesRead);
-						printf("receive msg successfully\n");
-						write_receiver_stats("log/server.txt");
-					}
+					/*parse the file name */
+					char * filename = "Project_1.pdf";
+					receive_file (open_file(filename), buffer, bytesRead);
+					printf("receive msg successfully\n");
+					write_receiver_stats("log/server.txt");
 				}
 			}
 		}

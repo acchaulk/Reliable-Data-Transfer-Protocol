@@ -163,7 +163,7 @@ size_t gbn_send(int sockfd, char* buffer, size_t length) {
 
 		/* Get a response */
 
-		reset_timer(g_timerList, 0, TIMEOUT, 0); /* Set the timeout */
+		reset_timer(g_timerList[0], TIMEOUT, 0); /* Set the timeout */
 
 		Frame_t currAck;
 		respLen = physical_recv (sockfd, &currAck, sizeof(currAck));

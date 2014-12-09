@@ -12,7 +12,7 @@
 
 typedef struct ackTimer_t {
 	int seq_no;
-	timer_t* timer_id;
+	timer_t *timer_id;
 } ackTimer_t;
 
 void sr_init(int windowSize, double lossRate, double corruptionRate);
