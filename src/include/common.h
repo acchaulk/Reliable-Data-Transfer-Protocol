@@ -13,9 +13,8 @@
 typedef enum { INIT, CONNECTING, CHATTING, TRANSFERING } client_state_t;
 typedef enum { SERVER_INIT, SERVER_RUNNING,  GRACE_PERIOD } server_state_t;
 
-
-#define SEND_PORT              "3490"   // the port client will be connecting to
-#define RECV_PORT               "3491"   // the port server will be connecting to
+#define PORT_1                "3490"   // the port client will be connecting to
+#define PORT_2                "3491"   // the port server will be connecting to
 #define SERV_HOST         	   "localhost"
 #define BUF_MAX                256    // max size for client data
 #define CLIENT_MAX             64     // how many pending connections queue will hold
@@ -29,14 +28,28 @@ typedef enum { SERVER_INIT, SERVER_RUNNING,  GRACE_PERIOD } server_state_t;
 #define TIMEOUT                1       // default timeout value for gbn timer, second
 #define MAXTRIES			   10
 #define DL_BUFFER_SIZE         8000
+#define FILENAME_SIZE          20
+#define MSG_SIZE			   10*1024*1024
+#define MSG_HEADER			   FILENAME_SIZE + sizeof(int)
 
-#define MSG_REMOTE_SHUTDOWN	   "###remote_shutdown"
 
 typedef enum PacketType {
 	PACKET = 1,
 	ACK_MSG = 2,
 	TEARDOWN = 4,
 } PacketType_t;
+
+typedef enum Message_type {
+	REMOTE_SHUTDOWN_MSG = 1,
+	CHAT_MSG = 2,
+	TRANSFER_MSG = 4,
+} Message_type_t;
+
+typedef struct Message {
+	Message_type_t type;
+	char filename[FILENAME_SIZE];
+	char data[MSG_SIZE];
+} Message_t;
 
 typedef struct Packet
 {
@@ -82,6 +95,10 @@ void write_receiver_stats(const char* path);
 void make_timer(timer_t * timers_head, int index, timerCallback_t callback, int timeout);
 void delete_timer(timer_t *head, int index);
 void reset_timer(timer_t *head, int index, int timeout, int interval);
+void chat(int sockfd, const char* message);
+void transfer(int sockfd, const char* filename);
+void store(Message_t * msg, int bytesRead);
+void help();
 
 Stats_t g_gbnStat;
 

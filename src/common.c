@@ -11,6 +11,8 @@
 #include <time.h>
 
 #include "common.h"
+#include "datalink.h"
+#include "control_msg.h"
 
 void print_ascii_art() {
 //    printf("\n");
@@ -345,4 +347,46 @@ void reset_timer(timer_t *head, int index, int timeout, int interval) {
 		perror("reset_timer()");
 		exit(1);
 	}
+}
+
+void chat(int sockfd, const char* message) {
+	Message_t * msg = malloc(sizeof(Message_t));
+	msg->type = CHAT_MSG;
+	strncpy(msg->data, message, strlen(message));
+
+	if (datalink_send(sockfd, (char *)msg, MSG_HEADER + strlen(message)) < 0) {
+		perror("send chat message fails");
+	}
+	free(msg);
+}
+
+void transfer(int sockfd, const char* filename) {
+	char * body;
+	int length = read_file(filename, &body);
+	if (length == -1) {
+		printf("file is not found\n");
+		return;
+	}
+	Message_t * msg = malloc(sizeof(Message_t));
+	msg->type = TRANSFER_MSG;
+	strncpy(msg->filename, filename, strlen(filename));
+	memcpy(msg->data, body, length);
+	datalink_send(sockfd, (char*)msg, length);
+	free(msg);
+}
+
+void store(Message_t * msg, int bytesRead) {
+	/*parse the file name */
+	receive_file (open_file(msg->filename), msg->data, bytesRead - MSG_HEADER);
+	printf("receive msg successfully\n");
+}
+
+/* prints all help commands */
+void help() {
+	printf("%-10s - start server.\n", START);
+	printf("%-10s - connect to server.\n", CONNECT);
+	printf("%-10s - chat with other client.\n", CHAT);
+	printf("%-10s - send file to other client.\n", TRANSFER);
+	printf("%-10s - print statistics information.\n", STATS);
+	printf("%-10s - print help information.\n", HELP);
 }

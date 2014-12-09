@@ -50,7 +50,7 @@ int main(int argc, char* argv[]) {
 
 	datalink_init(protocol, windowSize, lossRate, corruptionRate);
 
-	g_sockfd = create_connection(SERV_HOST, SEND_PORT);
+	g_sockfd = create_connection(SERV_HOST, PORT_1);
 
 	char * buffer;
 	int length = read_file("Project_1.pdf", &buffer);

@@ -42,13 +42,11 @@ void physical_init(double lossRate, double corruptionRate) {
 }
 
 int physical_send(int sockfd, Frame_t* frame, size_t data_length) {
-	if (strcmp(frame->pkt.data, MSG_REMOTE_SHUTDOWN) != 0) {
-		if(g_lossRate > drand48()) {
-			return 0; /* drop packet - for testing/debug purposes */
-		}
-		if(g_corruptionRate > drand48()) {
-			corrupt_pkt(frame);
-		}
+	if(g_lossRate > drand48()) {
+		return 0; /* drop packet - for testing/debug purposes */
+	}
+	if(g_corruptionRate > drand48()) {
+		corrupt_pkt(frame);
 	}
 
 	size_t numbytes = send(sockfd, frame, data_length, 0);

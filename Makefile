@@ -2,35 +2,20 @@
 # Makefile of Text ChatRoullette
 #
 
-#SERVER_SRC := server.c \
-#                                  datalink.c \
-#                                  gbn.c \
-#                                  sr.c \
-#                                  common.c \
-#                                  physical.c
 
-SERVER_SRC := dummyServer.c \
+SERVER_SRC := server.c \
                                       datalink.c \
                                       gbn.c \
                                       sr.c \
                                       common.c \
                                       physical.c
 
-#CLIENT_SRC := client.c  \
-#                                  datalink.c \
-#                                  gbn.c \
-#                                  sr.c \
-#                                  common.c \
-#                                  physical.c               
-
-CLIENT_SRC := dummyClient.c  \
+CLIENT_SRC := client.c  \
                                   datalink.c \
                                   gbn.c \
                                   sr.c \
                                   common.c \
                                   physical.c                         
-
-CLIENT_WRAPPER := realClient.c
 
 # Predefine directories
 PWD := $(shell pwd;cd)
@@ -43,8 +28,6 @@ INCLUDE_DIR := $(SRC_DIR)/include
 
 CLIENT_OBJ := $(patsubst %.c, $(OBJ_DIR)/%.o, $(CLIENT_SRC))
 SERVER_OBJ := $(patsubst %.c, $(OBJ_DIR)/%.o, $(SERVER_SRC))
-
-CLIENT_WRAPPER_OBJ :=  $(patsubst %.c, $(OBJ_DIR)/%.o, $(CLIENT_WRAPPER))
 
 # debug info
 #$(info SRC_DIR=$(SRC_DIR))
@@ -75,9 +58,6 @@ client: $(CLIENT_OBJ)
 server: $(SERVER_OBJ)
 	$(CC) $(CFLAGS) -o $(TOPDIR)/$(SERVER_TARGET) $(SERVER_OBJ) $(LDFLAGS)
 	
-client_wrapper: $(CLIENT_WRAPPER_OBJ)
-	$(CC) $(CFLAGS) -o $(TOPDIR)/client_wrapper $(CLIENT_WRAPPER_OBJ)
-
 clean:
 	rm -rf $(OBJ_DIR) $(LOG_DIR) $(RECV_DIR) $(TOPDIR)/$(CLIENT_TARGET) $(TOPDIR)/$(SERVER_TARGET) $(CLIENT_WRAPPER_OBJ)   $(TOPDIR)/client_wrapper
 

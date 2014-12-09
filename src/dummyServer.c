@@ -55,7 +55,7 @@ int main(int argc, char* argv[]) {
 	char *buffer = malloc(100*1024*1024);		/* 100M buffer */
 
 	datalink_init(protocol, windowSize, lossRate, corruptionRate);
-	int listener_fd = listen_connection(SEND_PORT);
+	int listener_fd = listen_connection(PORT_1);
 	g_fdmax = listener_fd;
 
 

@@ -21,10 +21,9 @@
 #include "common.h"
 #include "control_msg.h"
 #include "datalink.h"
-#include "packet.h"
 
 /* global variables for the server */
-server_state_t g_state =  SERVER_INIT;
+static server_state_t g_state =  SERVER_INIT;
 struct client_info* g_clients[CLIENT_MAX]; // chat queue
 fd_set g_bitmap;  // bitmap for chat channel
 fd_set g_master;  // global socket map
@@ -51,552 +50,37 @@ void cleanup() {
 	}
 }
 
-/* Generate a new client node */
-int create_client(int sockfd, struct client_info **node) {
-	char *name;
-	int index;
-
-	//find a empty slot in chat queue
-	for (index = 0; index < CLIENT_MAX; index++) {
-		if (!FD_ISSET(index, &g_bitmap)) {
-			FD_SET(index, &g_bitmap);
-			break;
-		}
-	}
-
-	// chat queue is full
-	if (index == CLIENT_MAX) {
-		char msg[] = "Chat queue is full, please retry later";
-		if (send(sockfd, msg, strlen(msg), 0) == -1) {
-			perror("chat queue full fails");
-		}
-		return -1;
-	}
-
-	name = malloc(NAME_LENGTH);
-	*node = malloc(sizeof(struct client_info));
-
-	sprintf(name, "user_%ld", g_useid++);
-
-	(*node)->name = name;
-	(*node)->sockfd = sockfd;
-	(*node)->partner_index = -1;
-	(*node)->state = CONNECTING;
-	(*node)->blocked = 0;
-	(*node)->flag = 0;
-
-	return index;
-}
-
-/* destroys the current client */
-void destroy_client(struct client_info ** client) {
-	free((*client)->name);
-	(*client)->name = NULL;
-	free(*client);
-	*client = NULL;
-}
-
-/* add client to chat queue, then ack back */
-int send_ack(int sockfd, struct client_info * clients[], fd_set *bitmap) {
-	char ack[BUF_MAX];
-	struct client_info *client;
-
-	/* add new client to chat queue */
-	int index = create_client(sockfd, &client);
-	if (index == -1) {
-		return -1;
-	}
-	clients[index] = client;
-
-	sprintf(ack, "%s:%s", MSG_ACK, client->name);
-	if (send(sockfd, ack, strlen(ack), 0) == -1) {
-		perror("ack fails");
-		return -1;
-	}
-	return 0;
-}
-
-/* finds a chat partner for the client */
-struct client_info* find_partner(int sockfd,
-		struct client_info *clients[], fd_set *bitmap)
-{
-    int i, r;
-    int avail_count = 0;
-    int client_num = 0;
-    int himself;
-    struct client_info *self = NULL;
-    int available_indices[CLIENT_MAX];
-
-    // find himself and available indices
-    memset(available_indices, 0, CLIENT_MAX);
-    for (i = 0; i < CLIENT_MAX; i++) {
-	    if (FD_ISSET(i, bitmap)) {
-            client_num++;
-            if (clients[i]->sockfd == sockfd) {
-				self = clients[i];
-				himself = i;
-			} else {
-				if (clients[i]->partner_index == -1) {
-					available_indices[avail_count] = i;
-					avail_count++;
-				}
-			}
-        }
-    }
-    if (self->blocked) {
-    	char msg[] = "Blocked user is not allowed to start a new chat";
-    	if (send(self->sockfd, msg, strlen(msg), 0) == -1) {
-			perror("send block fails");
-		}
-		return NULL;
-    }
-
-    // only one user at the time
-    if (client_num == 1) {
-        self->partner_index = -1;
-        char msg[] =  "You are the only user in the system right now.";
-		if (send(self->sockfd, msg, strlen(msg), 0) == -1) {
-			perror("send fails");
-		}
-        return NULL;
-    }
-
-    if (avail_count == 0) {
-    	char msg[] = "All users are chatting now, please try later.";
-		if (send(sockfd, msg, strlen(msg), 0) == -1) {
-			perror("no available fails");
-		}
-		return NULL;
-    }
-
-    // find a random parter (other than himself)
-    srand(clock());
-    r = rand() % avail_count; // not uniformly distributed
-	if (r > avail_count - 1) {
-		printf("Error: Partner(index:%d) is not in chat queue", r);
-		return NULL;
-	}
-	int index = available_indices[r];
-	self->partner_index = index;
-	clients[index]->partner_index = himself;
-
-    return self;
-}
-
-/* handler for chat requests */
-struct client_info * handle_chat_request(int sockfd, fd_set *master,
-		struct client_info *clients [], fd_set *bitmap)
-{
-	char buf[BUF_MAX]; // buffer for client data
-	struct client_info *client;
-	struct client_info *partner;
-
-	// find a random partner and connect with the client who send the quest
-	client = find_partner(sockfd, clients, bitmap);
-	if (!client) {
-		return NULL;
-	}
-	partner = clients[client->partner_index];
-	// send IN_SESSION message to both clients
-	memset(&buf, 0, BUF_MAX);
-	sprintf(buf, "%s:%s", MSG_IN_SESSION, partner->name);
-	if (FD_ISSET(client->sockfd, master)) {
-		if (send(client->sockfd, buf, strlen(buf), 0) == -1) {
-			perror("send IN_SESSION fails");
-			return NULL;
-		}
-	}
-	client->state = CHATTING;
-	memset(&buf, 0, BUF_MAX);
-	sprintf(buf, "%s:%s", MSG_IN_SESSION, client->name);
-	if (FD_ISSET(partner->sockfd, master)) {
-		if (send(partner->sockfd, buf, strlen(buf), 0) == -1) {
-			perror("send IN_SESSION fails");
-			return NULL;
-		}
-	}
-	partner->state = CHATTING;
-	return partner;
-}
-
-/* handler for transfering files */
-void handle_transfer(const char * file_name, struct client_info *client, struct client_info *partner) {
-
-	char buf[BUF_MAX];
-	sprintf(buf, "%s:%s", MSG_RECEIVING_FILE, file_name);
-	if (send(partner->sockfd, buf, sizeof(buf), 0) == -1) {
-		perror("send receiving file fails");
-		return;
-	}
-
-	if (send(client->sockfd, MSG_TRANSFER_ACK, sizeof(MSG_TRANSFER_ACK), 0) == -1) {
-		perror("send reponse ack fails");
-		return;
-	}
-	client->state = TRANSFERING;
-	partner->state = TRANSFERING;
-}
-
-/* handler for the help command */
-void handle_help(int sockfd) {
-	char buf[512];
-	sprintf(buf, "%-10s - connect to TRS server.\n"
-			"%-10s - chat with a random client in the common chat channel.\n"
-			"%-10s - transfer file to current chatting partner.\n"
-			"%-10s - report to TRS server current chatting partner is misbehaving\n"
-			"%-10s - print help information.\n"
-			"%-10s - quit current channel.\n"
-			"%-10s - quit client.\n",
-			CONNECT, CHAT, TRANSFER, FLAG, HELP, QUIT, EXIT);
-
-//	if (send(client->sockfd, buf, strlen(buf), 0) == -1) {
-//		perror("send help message fails");
+//static void grace_exit(int signum) {
+//	int i;
+//	for (i = 0; i <= g_fdmax; i++) {
+//		if (FD_ISSET(i, &g_master)) {
+//			if (datalink_send(i, MSG_REMOTE_SHUTDOWN, strlen(MSG_REMOTE_SHUTDOWN)) == -1) {
+//				perror("notify client fails");
+//			}
+//		}
 //	}
-	if (datalink_send(sockfd, buf, strlen(buf)) == -1) {
-		perror("send help message fails");
-	}
-}
+//	sleep(1);
+//	exit(1);
+//}
 
-/* prints all help commands */
-void print_help() {
-	printf("%-10s - list following information: \n"
-			"\t\t[1] number of clients in chat queue,\n"
-			"\t\t[2] number of clients chatting currently,\n"
-			"\t\t[3] data usage for each channel being used,\n"
-			"\t\t[4] total number of users flagged chatting partners and their names and their status.\n", STATS);
-	printf("%-10s - kick out specific client from current channel.\n", THROWOUT);
-	printf("%-10s - block specific client from starting a chat.\n", BLOCK);
-	printf("%-10s - unblock specific client from ban list.\n", UNBLOCK);
-	printf("%-10s - start server.\n", START);
-	printf("%-10s - stop server with a grace period.\n", END);
-	printf("%-10s - print help information.\n", HELP);
-}
+///* handler for transfering files */
+//void handle_transfer(const char * file_name, struct client_info *client, struct client_info *partner) {
+//
+//	char buf[BUF_MAX];
+//	sprintf(buf, "%s:%s", MSG_RECEIVING_FILE, file_name);
+//	if (send(partner->sockfd, buf, sizeof(buf), 0) == -1) {
+//		perror("send receiving file fails");
+//		return;
+//	}
+//
+//	if (send(client->sockfd, MSG_TRANSFER_ACK, sizeof(MSG_TRANSFER_ACK), 0) == -1) {
+//		perror("send reponse ack fails");
+//		return;
+//	}
+//	client->state = TRANSFERING;
+//	partner->state = TRANSFERING;
+//}
 
-/* handler for a client exiting the program */
-void handle_exit(struct client_info * client,
-	struct client_info *partner, fd_set *bitmap) {
-	FD_CLR(client->partner_index, bitmap);
-	client->partner_index = -1;
-	if (!partner) {
-		partner->partner_index = -1;
-	}
-	free(client);
-}
-
-/* handler for the client quitting the current chat channel */
-void handle_quit(struct client_info *client, struct client_info *partner) {
-	partner->partner_index = -1;
-	client->partner_index = -1;
-	client->state = CONNECTING;
-	partner->state = CONNECTING;
-	if (send(partner->sockfd, MSG_QUIT, sizeof(MSG_QUIT), 0) == -1) {
-		perror("quit channel fails");
-	}
-	if (send(client->sockfd, MSG_QUIT, sizeof(MSG_QUIT), 0) == -1) {
-		perror("quit channel fails");
-	}
-}
-
-void handle_flag(struct client_info * partner) {
-	partner->flag++;
-	char msg[] = "Your partner reported your misbehaving to the server";
-	if (send(partner->sockfd, msg, strlen(msg), 0) == -1) {
-		perror("quit channel fails");
-	}
-}
-
-/* write stat to a file */
-void handle_stat() {
-	int i;
-	int client_num = 0; /* number of clients in chat queue*/
-	int chatter_num = 0; /* number of clients chatting currently */
-	int total_flag = 0; /* total number of users flagged chatting partner */
-	struct client_info *client;
-	char status[30];
-
-	FILE *fp = fopen(STAT_FILEPATH, "w");
-	if (!fp) {
-		perror("create stat file fails");
-		return;
-	}
-
-	for (i = 0; i < CLIENT_MAX; i++) {
-		if (FD_ISSET(i, &g_bitmap)) {
-			client = g_clients[i];
-
-			client_num++;
-			if (client->partner_index != -1) {
-				chatter_num++;
-			}
-			if (client->flag != 0) {
-				total_flag++;
-			}
-		}
-	}
-	int ret = fprintf(fp, "Number of clients in chat queue: %d\n"
-			"Number of clients chatting currently: %d\n"
-			"Total number of users flagged chatting partner: %d\n",
-			client_num, chatter_num, total_flag);
-	if (ret < 0) {
-		perror("write stat file fails");
-		fclose(fp);
-		return;
-	}
-
-	for (i = 0; i < CLIENT_MAX; i++) {
-		if (FD_ISSET(i, &g_bitmap)) {
-			client = g_clients[i];
-			if (client->flag != 0) {
-				if (client->partner_index != -1) {
-					sprintf(status, "chatting with %s\n", g_clients[client->partner_index]->name);
-				} else {
-					sprintf(status, "not chatting\n");
-				}
-				if (fprintf(fp, "%s: receive %d flag, %s", client->name, client->flag, status) < 0) {
-					perror("write stat file fails");
-					fclose(fp);
-					return;
-				}
-			}
-		}
-	}
-	fclose(fp);
-	printf("Write data to %s successfully\n", STAT_FILEPATH);
-}
-
-/* kick out specific user from current channel */
-void handle_throwout(char * username) {
-	int i;
-
-	for (i = 0; i < CLIENT_MAX; i++) {
-		if (FD_ISSET(i, &g_bitmap)) {
-			struct client_info * client = g_clients[i];
-			if(strcmp(client->name, username) == 0) {
-				if (client->partner_index != -1) {
-					struct client_info * partner = g_clients[client->partner_index];
-
-					client->partner_index = -1;
-					client->state = CONNECTING;
-					partner->partner_index = -1;
-					partner->state = CONNECTING;
-
-					if (send(client->sockfd, MSG_BE_KICKOUT, strlen(MSG_BE_KICKOUT), 0) == -1) {
-						perror("kickout client fails");
-					}
-					if (send(partner->sockfd, MSG_PARTNER_BE_KICKOUT, strlen(MSG_PARTNER_BE_KICKOUT), 0) == -1) {
-						perror("kickout partner fails");
-					}
-				} else {
-					printf("%s is not chatting now", client->name);
-				}
-				return;
-			}
-		}
-	}
-	printf("'%s' is not found in chat queue\n", username);
-}
-
-/* handler for the blocking of a user */
-void handle_block(char *username) {
-	int i;
-	for (i = 0; i < CLIENT_MAX; i++) {
-		if (FD_ISSET(i, &g_bitmap)) {
-			struct client_info * client = g_clients[i];
-			if(strcmp(client->name, username) == 0) {
-				client->blocked = 1;
-				if (send(client->sockfd, MSG_BLOCK, strlen(MSG_BLOCK), 0) == -1) {
-					perror("block client fails");
-				}
-				return;
-			}
-		}
-	}
-	printf("'%s' is not found in chat queue\n", username);
-}
-
-/* handler for unblocking a user */
-void handle_unblock(char *username) {
-	int i;
-	for (i = 0; i < CLIENT_MAX; i++) {
-		if (FD_ISSET(i, &g_bitmap)) {
-			struct client_info * client = g_clients[i];
-			if(strcmp(client->name, username) == 0) {
-				client->blocked = 0;
-				if (send(client->sockfd, MSG_UNBLOCK, strlen(MSG_UNBLOCK), 0) == -1) {
-					perror("unblock client fails");
-				}
-				return;
-			}
-		}
-	}
-	printf("'%s' is not found in chat queue\n", username);
-}
-
-/* handler for ending the TRS*/
-void handle_end(int signum)
-{
-	int i;
-	for (i = 0; i < CLIENT_MAX; i++) {
-		if (FD_ISSET(i, &g_bitmap)) {
-			struct client_info * client = g_clients[i];
-			if (send(client->sockfd, MSG_SERVER_STOP, strlen(MSG_SERVER_STOP), 0) == -1) {
-				perror("send end timer fails");
-			}
-			close(client->sockfd); // close socket();
-			destroy_client(&client);
-
-		}
-	}
-	FD_ZERO(&g_bitmap);
-	pthread_kill(g_connector, SIGUSR1); // send a user define signal to kill thread
-	g_state = SERVER_INIT;
-	printf("Shutdown server successfully\n");
-}
-
-/* handler for when the server ends the TRS */
-void handle_grace_period() {
-	int i;
-	char msg[] = "Server will be shutdown in 10 seconds!";
-	for (i = 0; i < CLIENT_MAX; i++) {
-		if (FD_ISSET(i, &g_bitmap)) {
-			struct client_info * client = g_clients[i];
-			if (send(client->sockfd, MSG_GRACE_PERIOD, strlen(MSG_GRACE_PERIOD), 0) == -1) {
-				perror("send grace period timer fails");
-			}
-		}
-	}
-
-	struct itimerval timer;
-	struct sigaction sa;
-	/* Install timer_handler as the signal handler for SIGVTALRM. */
-	memset (&sa, 0, sizeof (sa));
-	sa.sa_handler = &handle_end;
-	sigaction (SIGALRM, &sa, NULL);
-
-	/* Configure the timer to expire after 10 second... */
-	timer.it_value.tv_sec = GRACE_PERIOD_SECONDS;
-	timer.it_value.tv_usec = 0;
-	timer.it_interval.tv_sec = 0;
-	timer.it_interval.tv_usec = 0;
-	if (setitimer(ITIMER_REAL, &timer, NULL) < 0) {
-		perror("set grace period timer fails");
-		return;
-	}
-	g_state = GRACE_PERIOD;
-	printf("Server will be shutdown in %d seconds!\n", GRACE_PERIOD_SECONDS);
-}
-
-/* forwards a message from the server to the partner */
-int forward_message(struct client_info *partner, char *buf) {
-	// forwarding packet from client to partner
-	if (send_all_packets(partner->sockfd, buf, BUF_MAX) == -1) {
-		perror("forward_chat_message");
-		return -1;
-	}
-	printf("send '%s' to %s[socket %d]\n", buf, partner->name, partner->sockfd);
-	return 0;
-}
-
-/* Helper function */
-int send_all_packets(int socket, void *buffer, size_t length)
-{
-    char *ptr = (char*) buffer;
-    while (length > 0)
-    {
-        int i = send(socket, ptr, length, 0);
-        if (i < 1) {
-        	return -1;
-        }
-        ptr += i;
-        length -= i;
-    }
-    return 0;
-}
-
-/* sends the file the sockfd, input file */
-int send_file(int sockfd, const char * input_file) {
-
-	/* check file size */
-	struct stat st;
-	stat(input_file, &st);
-	int size = st.st_size; // size in bytes
-
-	if (size > 10000000) {
-		printf("Size of file > 100 MB. Must send a smaller file.");
-		return -1;
-	}
-
-	/* Open the file that we wish to transfer */
-	FILE *fp = fopen(input_file, "rb");
-	if (fp == NULL) {
-		printf("File open error");
-		return 1;
-	}
-
-	/* Read data from file and send it */
-	while (1) {
-		/* First read file in chunks of 256 bytes */
-		unsigned char buff[256] = { 0 };
-		int nread = fread(buff, 1, 256, fp);
-		printf("Bytes read %d \n", nread);
-
-		/* If read was success, send data. */
-		if (nread > 0) {
-			printf("Sending \n");
-			write(sockfd, buff, nread);
-		}
-
-		/*
-		 * There is something tricky going on with read ..
-		 * Either there was error, or we reached end of file.
-		 */
-		if (nread < 256) {
-			if (feof(fp))
-				printf("End of file\n");
-			if (ferror(fp))
-				printf("Error reading\n");
-			break;
-		}
-
-	}
-
-	return 0;
-}
-
-/* handler for file transfer completion */
-void handle_transfer_complete(struct client_info *client, struct client_info *partner) {
-	partner->state = CHATTING;
-	client->state = CHATTING;
-}
-
-/* kills a current thread */
-void kill_thread(int signum) {
-	int i;
-	for (i = 0; i < CLIENT_MAX; i++) {
-		if (FD_ISSET(i, &g_master)) {
-			close(i);
-		}
-	}
-	FD_ZERO(&g_master);
-	pthread_exit(NULL);
-}
-
-void exit_server(int signum) {
-	int i;
-	for (i = 0; i < CLIENT_MAX; i++) {
-		if (FD_ISSET(i, &g_bitmap)) {
-			struct client_info *client = g_clients[i];
-			if (client->state > INIT) {
-				printf("send exit_server to %s\n", client->name);
-				if (send(client->sockfd, MSG_SERVER_SHUTDOWN, strlen(MSG_SERVER_SHUTDOWN), 0) == -1) {
-					perror("notify client fails");
-				}
-			}
-		}
-	}
-	printf("exit_server\n");
-	exit(1);
-}
 
 /* main loop to be executed, handles the state transition */
 void * server_loop(void * arg) {
@@ -612,7 +96,7 @@ void * server_loop(void * arg) {
 	FD_ZERO(&g_bitmap);
 
     // create socket and listen on it
-	listener_fd = listen_connection(RECV_PORT);
+	listener_fd = listen_connection(PORT_2);
 
 	g_state = SERVER_RUNNING;
 
@@ -622,11 +106,11 @@ void * server_loop(void * arg) {
 	// keep track of the biggest file descriptor
 	fdmax = listener_fd;
 
-	struct sigaction sa;
-	/* Install timer_handler as the signal handler for SIGVTALRM. */
-	memset (&sa, 0, sizeof (sa));
-	sa.sa_handler = &exit_server;
-	sigaction (SIGINT, &sa, NULL);
+//	struct sigaction sa;
+//	/* Install timer_handler as the signal handler for SIGVTALRM. */
+//	memset (&sa, 0, sizeof (sa));
+//	sa.sa_handler = &exit_server;
+//	sigaction (SIGINT, &sa, NULL);
 
 	while(1) {  
 	    read_fds = master; // copy it
@@ -642,66 +126,22 @@ void * server_loop(void * arg) {
                 	// getting new incoming connection
                 	accept_connection(listener_fd, &fdmax, &master);
 				} else {
+					char* buffer = malloc(sizeof(Message_t));	/* allocate a buffer for message */
+					memset (buffer, 0, sizeof(Message_t));		/* zero out the buffer */
 					// handling data from client
-					struct client_info * client;
-					for (j = 0; j < CLIENT_MAX; j++) {
-						if (FD_ISSET(j, &g_bitmap)) {
-							if (i == g_clients[j]->sockfd) {
-								client = g_clients[j];
-								break;
-							}
-						}
+					int bytesRead = datalink_recv(i, buffer);
+					Message_t* msg = (Message_t*)buffer;
+					// read the application header
+					switch (msg->type) {
+					case REMOTE_SHUTDOWN_MSG:
+						break;
+					case CHAT_MSG:
+						printf("%s\n", msg->data); // print chat text
+						break;
+					case TRANSFER_MSG:
+						store(msg, bytesRead);
+						break;
 					}
-
-
-
-					int nbytes;
-				    char *buf = malloc(BUF_MAX + 1); // buffer for client data
-					if ((nbytes = datalink_recv(i, buf, BUF_MAX)) <= 0) {
-						// got error or connection closed by client
-						if (nbytes == 0) {
-							// connection closed
-							printf("selectserver: socket %d hung up\n", i);
-						} else {
-							perror("recv() client data fails");
-						}
-						close(i); // bye!
-						FD_CLR(i, &master); // remove from g_master set
-						continue;
-					} else {
-						buf[nbytes + 1] = '\0';
-						printf("receive '%s'\n", buf);
-
-						char *token;
-						char *params[PARAMS_MAX];
-						int count = 0;
-
-						while ((token = strsep(&buf, ":")) != NULL) {
-							params[count] = strdup(token);
-							count++;
-						}
-
-						/* handle help first */
-						if (strcmp(params[0], HELP) == 0) {
-							print_help();
-							continue;
-						}
-
-						if (strcmp(params[0], EXIT) == 0) {
-							handle_exit(client, NULL, &g_bitmap);
-						} else if (strcmp(params[0], MSG_CHAT_REQUEST) == 0) {
-							// if client request to chat, server will allocate a partner first
-							handle_chat_request(i, &master, g_clients, &g_bitmap);
-						} else if (strcmp(params[0], MSG_HELP) == 0) {
-							handle_help(i);
-						}
-
-						int k;
-						for(k = 0; k < count; k++) {
-							free(params[k]);
-						}
-					}
-					free(buf);
 				}
 			}
 		}
@@ -710,7 +150,7 @@ void * server_loop(void * arg) {
 }
 
 /* parses control commands entered by the admin */
-void parse_control_command(char * cmd) {
+static void parse_control_command(char * cmd) {
 	char *params[PARAMS_MAX];
 	char *token;
 	char delim[2] = " ";
@@ -721,110 +161,84 @@ void parse_control_command(char * cmd) {
 		count++;
 	}
 
-	switch (g_state) {
-	case SERVER_INIT:
-		if (strcmp(params[0], STATS) == 0    ||
-			strcmp(params[0], THROWOUT) == 0 ||
-			strcmp(params[0], BLOCK) == 0    ||
-			strcmp(params[0], UNBLOCK) == 0) {
-			printf("You need start server first\n");
-		} else if (strcmp(params[0], START) == 0) {
-			// create socket and listen on it
-			g_sockfd = create_connection("localhost", SEND_PORT);
-			if (g_sockfd == -1) {
-				return;
-			}
-			pthread_create(&g_connector, NULL, &server_loop, NULL);
-		} else if (strcmp(params[0], END) == 0) {
-			/* server has not started yet, don't need grace period */
-			printf("Server hasn't started yet\n");
-		} else if (strcmp(params[0], HELP) == 0) {
-			print_help();
-		} else {
-			printf("%s: Command not found. Type '%s' for more information.\n", params[0], HELP);
+	if (strcmp(params[0], START) == 0) {
+		// create socket and listen on it
+		g_sockfd = create_connection("localhost", PORT_1);
+		if (g_sockfd == -1) {
+			return;
 		}
-		break;
-	case SERVER_RUNNING:
-		if (strcmp(params[0], STATS) == 0) {
-			handle_stat();
-		} else if (strcmp(params[0], CHAT) == 0) {
-			// TODO: Should admin able to talk with other clients?
-		} else if (strcmp(params[0], THROWOUT) == 0) {
-			if (count != 2) {
-				printf("Usage: %s [username]\n", THROWOUT);
-				return;
-			}
-			handle_throwout(params[1]);
-		} else if (strcmp(params[0], BLOCK) == 0) {
-			if (count != 2) {
-				printf("Usage: %s [username]\n", BLOCK);
-				return;
-			}
-			handle_block(params[1]);
-		} else if (strcmp(params[0], UNBLOCK) == 0) {
-			if (count != 2) {
-				printf("Usage: %s [username]\n", UNBLOCK);
-				return;
-			}
-			handle_unblock(params[1]);
-		} else if (strcmp(params[0], START) == 0) {
-			printf("Server has already started.\n");
-		} else if (strcmp(params[0], END) == 0) {
-			handle_grace_period();
-		} else if (strcmp(params[0], HELP) == 0) {
-			print_help();
-		} else {
-			printf("%s: Command not found. Type '%s' for more information.\n", params[0], HELP);
+		pthread_create(&g_connector, NULL, &server_loop, NULL);
+	} else if (strcmp(params[0], CHAT) == 0) {
+		if (count == 1) {
+			printf("Usage: %s [message]\n", CHAT);
+			return;
 		}
-		break;
-	case GRACE_PERIOD:
-		break;
-	default:
-		break;
+		chat(g_sockfd, params[1]);
+	} else if (strcmp(params[0], TRANSFER) == 0) {
+		if (count == 1) {
+			printf("Usage: %s [filename]\n", TRANSFER);
+			return;
+		}
+		transfer(g_sockfd, params[1]);
+	} else if (strcmp(params[0], EXIT) == 0) {
+		exit(1);
+	} else if (strcmp(params[0], HELP) == 0) {
+		help();
+	} else if (strcmp(params[0], STATS) == 0) {
+		write_sender_stats("log/server_sender.txt");
+		write_receiver_stats("log/server_receiver.txt");
+		printf("write stats successfully\n");
+	}  else {
+		printf("%s: Command not found. Type '%s' for more information.\n", params[0], HELP);
 	}
-
 }
 
 /* main function */
 int main(int argc, char* argv[]) {
-    int listener_fd;
-	int fdmax;
-	fd_set master;   // master file descriptor list
-	fd_set read_fds; // tmp file descriptor list for select
-	fd_set bitmap;  // hack for chat channel
-	int i, j;
-	struct client_info* clients[CLIENT_MAX];
-	int client_num = 0;  // # of clients currently log in
-	pthread_t connector, receiver;
 	char user_input[BUF_MAX];
-
-	if (argc != 4) {
-		printf("Usage: ./server [gbn|sr] [window_size] [loss_rate]\n");
+	if (argc != 5) {
+		fprintf (stderr, "Usage: %s [gbn|sr] [window_size] [loss_rate] [corruption_rate]\n", argv[0]);
 		exit(1);
 	}
 
 	char * protocol = argv[1];
-	int window_size = atoi(argv[2]);
-	double loss_rate;
-	sscanf(argv[3], "%lf", &loss_rate);
-    datalink_init(protocol, window_size, loss_rate);
-    printf("protocol = %s, window_size = %d, loss_rate = %lf\n", protocol, window_size, loss_rate);
+	int windowSize = atoi (argv[2]);
+	double lossRate = atof(argv[3]);	/* loss rate as percentage i.e. 50% = .50 */
+	if (lossRate > 1.0f && lossRate < 0) {
+		fprintf(stderr, "lossRate must between 0 and 1\n");
+		exit(1);
+	}
 
-	print_ascii_art();
+	double corruptionRate = atof(argv[4]);	/* corruption rate as percentage i.e. 50% = .50 */
+	if (corruptionRate > 1.0f && corruptionRate < 0) {
+		fprintf(stderr, "corruptionRate must between 0 and 1\n");
+		exit(1);
+	}
+
+//	struct sigaction sa;
+//	/* Install timer_handler as the signal handler for SIGINT. */
+//	memset (&sa, 0, sizeof (sa));
+//	sa.sa_handler = &grace_exit;
+//	sigaction (SIGINT, &sa, NULL);
+
+	datalink_init(protocol, windowSize, lossRate, corruptionRate);
 
 	while (1) {
-		printf("admin> "); // prompt
-		fgets(user_input, BUF_MAX, stdin);
+		printf("> "); // prompt
+		memset(user_input, 0, BUF_MAX);
+		char* ret = fgets(user_input, BUF_MAX, stdin);
+		if (ret == NULL) {
+			continue;
+		}
 		user_input[strlen(user_input) - 1] = '\0';
 
-		char * input_copy = strdup(user_input); // copy user input
-		if (input_copy[0] == '/') {
-			parse_control_command(input_copy);
+		if (user_input[0] == '/') {
+			parse_control_command(user_input);
 		} else {
-			if (strcmp(strip(input_copy), "") == 0) {
+			if (strcmp(strip(user_input), "") == 0) {
 				continue;
 			}
-			printf("%s: Command not found. Type '%s' for more information.\n", input_copy, HELP);
+			printf("%s: Command not found. Type '%s' for more information.\n", user_input, HELP);
 		}
 	}
 

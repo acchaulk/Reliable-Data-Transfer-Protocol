@@ -30,17 +30,11 @@
 #define CONNECT "/connect"
 #define CHAT "/chat"
 #define TRANSFER "/transfer"
-#define FLAG "/flag"
 #define HELP "/help"
 #define QUIT "/quit"
 #define EXIT "/exit"
-
 // supported admin command
 #define STATS "/stats"
-#define THROWOUT "/throwout"
-#define BLOCK "/block"
-#define UNBLOCK "/unblock"
 #define START "/start"
-#define END "/end"
 
 #endif
