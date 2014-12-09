@@ -11,6 +11,17 @@
 #include "datalink.h"
 #include "common.h"
 
+static int g_sockfd;
+
+static void grace_exit(int unused) {
+	if (datalink_send(g_sockfd, MSG_REMOTE_SHUTDOWN, strlen(MSG_REMOTE_SHUTDOWN)) == -1) {
+		perror("notify client fails");
+	}
+	sleep(1);
+	close(g_sockfd);
+	exit(1);
+}
+
 int main(int argc, char* argv[]) {
 	if (argc != 5) {
 		fprintf (stderr, "Usage: %s [gbn|sr] [window_size] [loss_rate] [corruption_rate]\n", argv[0]);
@@ -31,9 +42,15 @@ int main(int argc, char* argv[]) {
 		exit(1);
 	}
 
+	struct sigaction sa;
+	/* Install timer_handler as the signal handler for SIGINT. */
+	memset (&sa, 0, sizeof (sa));
+	sa.sa_handler = &grace_exit;
+	sigaction (SIGINT, &sa, NULL);
+
 	datalink_init(protocol, windowSize, lossRate, corruptionRate);
 
-	int sockfd = create_connection(SERV_HOST, SEND_PORT);
+	g_sockfd = create_connection(SERV_HOST, SEND_PORT);
 
 	char * buffer;
 	int length = read_file("Project_1.pdf", &buffer);
@@ -41,10 +58,9 @@ int main(int argc, char* argv[]) {
 		printf("file is not found\n");
 		exit(1);
 	}
-	datalink_send(sockfd, buffer, length);
+	datalink_send(g_sockfd, buffer, length);
 	write_sender_stats("log/client.txt");
-	getchar();
-	close(sockfd);
+	grace_exit(0);
 
 	return 0;
 }

@@ -17,7 +17,6 @@ static pthread_t g_masterThread;
 static timer_t *g_timerList;
 static int* g_pktAck;  /*1 for ACK, 0 for non-ACK, vector for keeping track of each ack within slide window */
 static int* g_sendflag;
-static char* g_sharedBuffer;
 static ackTimer_t* ackTimer;
 
 // Only purpose here is changing the default behavior of SIGALRM
@@ -36,13 +35,23 @@ static void handler(union sigval si) {
 	}
 }
 
-void dequeue(int* sendflag) {
+void dequeue_flag(int* sendflag) {
 	int i;
 	for (i = 0; i < g_windowSize - 1; i++) {
 		sendflag[i] = sendflag[i + 1];
 	}
 	sendflag[i] = 1;
 }
+
+//void dequeue_ackTimer(ackTimer_t* ackTimer) {
+//	int i;
+//	for (i = 0; i < g_windowSize - 1; i++) {
+//		ackTimer[i].seq_no = ackTimer[i + 1].seq_no;
+//		ackTimer[i].timer_id = ackTimer[i + 1].timer_id;
+//	}
+//	ackTimer[i].seq_no = -1;
+//	ackTimer[i].timer_id = 0;
+//}
 
 void sr_init(int windowSize, double lossRate, double corruptionRate) {
 	int i;
@@ -80,11 +89,6 @@ size_t sr_send(int sockfd, char* buffer, size_t length) {
 	int respLen;					/* Size of received frame */
 	int bytesSent = 0;
 
-	// make the message visible across all threads
-	g_sharedBuffer = malloc(length);
-	memcpy(g_sharedBuffer, buffer, length);
-
-
 	/* Set signal handler for alarm signal */
 	timerAction.sa_handler = dummy_handler;
 	/* block everything in handler */
@@ -108,7 +112,7 @@ size_t sr_send(int sockfd, char* buffer, size_t length) {
 		int ctr; /*window size counter */
 		/* Open sender-side slide window and move forward */
 		for (ctr = 0; ctr < g_windowSize; ctr++) {
-			if (g_sendflag[ctr] > 0)	{
+			if (g_sendflag[ctr] > 0) {
 				g_sendflag[ctr] = 0;
 
 				/* current packet we're working with */
@@ -149,6 +153,7 @@ size_t sr_send(int sockfd, char* buffer, size_t length) {
 					reset_timer(g_timerList, ctr, TIMEOUT, 0);
 					ackTimer[ctr].timer_id = g_timerList + ctr;
 					ackTimer[ctr].seq_no = base + ctr;
+					printf ("start timer[%d] for PACKET %d\n", ctr, base + ctr);
 				} /* if ((base + ctr) < nPackets) */
 			} /* if (g_sendflag > 0) */
 		} /* for loop */
@@ -174,17 +179,22 @@ size_t sr_send(int sockfd, char* buffer, size_t length) {
 			if (acktype == ACK_MSG) {
 				if (ackno == base) {
 					base++;
-					dequeue(g_sendflag);
-					reset_timer(g_timerList, ackno % g_windowSize, 0, 0); //cancel timer of this packet
-				}
-				if (ackno > base) {
-					reset_timer(g_timerList, ackno % g_windowSize, 0, 0); //cancel timer of this packet
+					dequeue_flag(g_sendflag);
+				} else if (ackno > base) {
 					g_sendflag[ackno % g_windowSize] = 1;
 				}
-				printf ("---- RECEIVE ACK %d\n", ackno); /* receive/handle ack */
+				//cancel timer of this packet
+				int i;
+				for (i = 0; i < g_windowSize; i++) {
+					if (ackTimer[i].seq_no == ackno) {
+						reset_timer(g_timerList, i, 0, 0);
+						printf ("cancel timer[%d] for PACKET %d (slide window: %d)\n", i, ackno, base);
+					}
+				}
 				ackRecv++;
 				/* Set the corresponding Ack vector to 1 */
 				g_pktAck[ackno] = 1;
+				printf ("---- RECEIVE ACK %d\n", ackno); /* receive/handle ack */
 			}
 		}
 	} /* while ((ackRecv < nPackets-1)) */

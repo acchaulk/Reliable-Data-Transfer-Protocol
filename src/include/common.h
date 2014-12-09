@@ -30,6 +30,8 @@ typedef enum { SERVER_INIT, SERVER_RUNNING,  GRACE_PERIOD } server_state_t;
 #define MAXTRIES			   10
 #define DL_BUFFER_SIZE         8000
 
+#define MSG_REMOTE_SHUTDOWN	   "###remote_shutdown"
+
 typedef enum PacketType {
 	PACKET = 1,
 	ACK_MSG = 2,

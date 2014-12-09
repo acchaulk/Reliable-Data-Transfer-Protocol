@@ -178,8 +178,6 @@ int create_connection(char *hostname, char *port) {
 
 }
 
-
-
 /* return 0 if connection sets up, otherwise return -1 */
 int accept_connection(int sockfd, int *fdmax, fd_set *master) {
     int new_fd;
@@ -193,20 +191,19 @@ int accept_connection(int sockfd, int *fdmax, fd_set *master) {
 	if (new_fd == -1) {
 		perror("accept() fails");
 		return -1;
-	} else {
-		FD_SET(new_fd, master); // add to g_master set
-		if (new_fd > *fdmax) {
-			*fdmax = new_fd; // keep track of the max
-		}
-		inet_ntop(their_addr.ss_family,
-				get_in_addr((struct sockaddr *)&their_addr),
-				remoteIP, sizeof remoteIP);
-		printf("selectserver: new connection from %s on "
-			   "socket %d\n", remoteIP, new_fd);
-
-		// Acks client and increment current index
-		return 0;
 	}
+
+	FD_SET(new_fd, master); // add to g_master set
+	if (new_fd > *fdmax) {
+		*fdmax = new_fd; // keep track of the max
+	}
+	inet_ntop(their_addr.ss_family,
+			get_in_addr((struct sockaddr *)&their_addr),
+			remoteIP, sizeof remoteIP);
+	printf("selectserver: new connection from %s on "
+		   "socket %d\n", remoteIP, new_fd);
+
+	return new_fd;
 }
 
 FILE* open_file(const char * input_file) {
