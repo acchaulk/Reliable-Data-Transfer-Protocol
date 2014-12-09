@@ -296,7 +296,7 @@ void write_sender_stats(const char* path) {
 	fprintf(fp, "The total number of acknowledgements received: %d\n", g_gbnStat.ackRecv);
 	fprintf(fp, "The file size: %d\n", g_gbnStat.filesize);
 	fprintf(fp, "The total number of bytes sent: %d\n", g_gbnStat.bytesSent);
-	fprintf(fp, "The total milliseconds taken to complete the request: %d\n\n\n", g_gbnStat.timeTaken);
+	fprintf(fp, "The total seconds taken to complete the request: %d\n\n\n", g_gbnStat.timeTaken);
 	fclose(fp);
 }
 
@@ -373,6 +373,20 @@ void transfer(int sockfd, const char* filename) {
 	memcpy(msg->data, body, length);
 	datalink_send(sockfd, (char*)msg, length);
 	free(msg);
+}
+
+void grace_exit(int sockfd) {
+	if (sockfd == -1) {
+		exit(1);
+	}
+	Message_t * msg = malloc(sizeof(Message_t));
+	msg->type = REMOTE_SHUTDOWN_MSG;
+	if (datalink_send(sockfd, (char*)msg, MSG_HEADER) == -1) {
+		perror("notify client fails");
+	}
+	sleep(1);
+	close(sockfd);
+	exit(1);
 }
 
 void store(Message_t * msg, int bytesRead) {

@@ -66,7 +66,10 @@ size_t physical_recv(int sockfd, Frame_t* frame, size_t data_length) {
 		return -1;
 	}
 	if (detect_corruption(frame)) {
-		printf("corruption detected seq_no %d\n", ntohl(frame->pkt.seq_no));
+		int seq_no = ntohl(frame->pkt.seq_no);
+		if (seq_no != 0) {
+			printf("corruption detected seq_no %d\n", seq_no);
+		}
 		return 0;
 	}
 	int type = ntohl(frame->pkt.type);

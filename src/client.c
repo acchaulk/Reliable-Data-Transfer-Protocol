@@ -26,15 +26,6 @@
 /* global variables for the client */
 static int g_sockfd;
 
-//static void grace_exit(int unused) {
-//	if (datalink_send(g_sockfd, MSG_REMOTE_SHUTDOWN, strlen(MSG_REMOTE_SHUTDOWN)) == -1) {
-//		perror("notify client fails");
-//	}
-//	sleep(1);
-//	close(g_sockfd);
-//	exit(1);
-//}
-
 ///* request help messages from server */
 //void request_help() {
 //	if (datalink_send(g_sockfd, MSG_HELP, sizeof(MSG_HELP)) < 0) {
@@ -49,19 +40,18 @@ static int g_sockfd;
 
 /* parses commands entered by the client */
 static void parse_control_command(char * cmd) {
-	char *params[PARAMS_MAX];
+	char *params[2] = {0};
 	char *token;
 	char delim[2] = " ";
 	int count = 0;
 	pthread_t sender, receiver;
 
-	while ((token = strsep(&cmd, delim)) != NULL) {
-		params[count] = strdup(token);
-		count++;
-	}
+	token = strsep(&cmd, delim);
+	params[0] = token;
+	params[1] = cmd;
 
 	if (strcmp(params[0], CONNECT) == 0) {
-		if (count != 2) {
+		if (params[1] == NULL) {
 			printf("Usage: %s [hostname]\n", CONNECT);
 			return;
 		}
@@ -71,19 +61,19 @@ static void parse_control_command(char * cmd) {
 		}
 		//pthread_create(&receiver, NULL, &receiver_thread, (void *)&g_sockfd);
 	} else if (strcmp(params[0], CHAT) == 0) {
-		if (count == 1) {
+		if (params[1] == NULL) {
 			printf("Usage: %s [message]\n", CHAT);
 			return;
 		}
 		chat(g_sockfd, params[1]);
 	} else if (strcmp(params[0], TRANSFER) == 0) {
-		if (count == 1) {
+		if (params[1] == NULL) {
 			printf("Usage: %s [filename]\n", TRANSFER);
 			return;
 		}
 		transfer(g_sockfd, params[1]);
 	} else if (strcmp(params[0], EXIT) == 0) {
-		exit(1);
+		grace_exit(g_sockfd);
 	} else if (strcmp(params[0], HELP) == 0) {
 		help();
 	} else if (strcmp(params[0], STATS) == 0) {
@@ -147,6 +137,8 @@ void * server_loop(void * arg) {
 					// read the application header
 					switch (msg->type) {
 					case REMOTE_SHUTDOWN_MSG:
+						close(i);
+						FD_CLR(i, &master);
 						break;
 					case CHAT_MSG:
 						printf("%s\n", msg->data); // print chat text

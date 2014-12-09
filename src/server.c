@@ -134,6 +134,9 @@ void * server_loop(void * arg) {
 					// read the application header
 					switch (msg->type) {
 					case REMOTE_SHUTDOWN_MSG:
+						close(i);
+						FD_CLR(i, &master);
+						g_sockfd = -1;
 						break;
 					case CHAT_MSG:
 						printf("%s\n", msg->data); // print chat text
@@ -151,15 +154,13 @@ void * server_loop(void * arg) {
 
 /* parses control commands entered by the admin */
 static void parse_control_command(char * cmd) {
-	char *params[PARAMS_MAX];
+	char *params[2] = {0};
 	char *token;
 	char delim[2] = " ";
-	int count = 0;
 
-	while ((token = strsep(&cmd, delim)) != NULL) {
-		params[count] = strdup(token);
-		count++;
-	}
+	token = strsep(&cmd, delim);
+	params[0] = token;
+	params[1] = cmd;
 
 	if (strcmp(params[0], START) == 0) {
 		// create socket and listen on it
@@ -169,19 +170,19 @@ static void parse_control_command(char * cmd) {
 		}
 		pthread_create(&g_connector, NULL, &server_loop, NULL);
 	} else if (strcmp(params[0], CHAT) == 0) {
-		if (count == 1) {
+		if (params[1] == NULL) {
 			printf("Usage: %s [message]\n", CHAT);
 			return;
 		}
 		chat(g_sockfd, params[1]);
 	} else if (strcmp(params[0], TRANSFER) == 0) {
-		if (count == 1) {
+		if (params[1] == NULL) {
 			printf("Usage: %s [filename]\n", TRANSFER);
 			return;
 		}
 		transfer(g_sockfd, params[1]);
 	} else if (strcmp(params[0], EXIT) == 0) {
-		exit(1);
+		grace_exit(g_sockfd);
 	} else if (strcmp(params[0], HELP) == 0) {
 		help();
 	} else if (strcmp(params[0], STATS) == 0) {

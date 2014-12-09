@@ -152,7 +152,7 @@ size_t gbn_send(int sockfd, char* buffer, size_t length) {
 //					printf("send size: %d, actual size:%d\n", FRAME_HEADER + currlength, sizeof(currFrame));
 					int bytes = physical_send(sockfd, &currFrame, FRAME_HEADER + currlength);
 					if ( bytes < 0) {
-						die
+						perror
 						("physical_send() sent a different number of bytes than expected");
 					} else if (bytes == 0) {
 						printf("drop packet %d\n", ntohl(currFrame.pkt.seq_no));
@@ -173,10 +173,11 @@ size_t gbn_send(int sockfd, char* buffer, size_t length) {
 					printf ("timed out, %d more tries...\n", MAXTRIES - g_tries);
 					break;
 				} else {
-					die ("No Response");
+					perror ("No Response");
+					break;
 				}
 			} else {
-				die ("physical_recv failed");
+				perror ("physical_recv failed");
 			}
 		}
 
@@ -230,13 +231,15 @@ size_t gbn_send(int sockfd, char* buffer, size_t length) {
 		teardown.pkt.seq_no = htonl (0);
 		teardown.pkt.length = htonl (0);
 		teardown.checksum = htonl (calcChecksum(&(teardown.pkt)));
-		while (1) {
+		int count = 10;
+		while (count > 0) {
 			int bytesSent = physical_send (sockfd, &teardown, sizeof(teardown));
 			printf("send out teardown msg\n");
 			if (bytesSent == sizeof(teardown)) {
 				printf("teardown msg reach the other side\n");
 				break;
 			}
+			count--;
 		}
 	}
 	diff = clock() - start;
